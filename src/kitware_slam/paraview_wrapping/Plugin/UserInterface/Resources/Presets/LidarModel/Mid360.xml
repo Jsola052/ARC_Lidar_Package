@@ -1,0 +1,29 @@
+<SlamPresets name="Mid360">
+  <Proxy group="filters" type="SlamOnline" id="202535" servers="1">
+    <Property name="Mode" id="202535.Mode" number_of_elements="1">
+      <Element index="0" value="0"/>
+      <Domain name="enum" id="202535.Mode.enum">
+        <Entry value="0" text="Sparse"/>
+        <Entry value="1" text="Dense"/>
+      </Domain>
+    </Property>
+    <Property name="Edge min intensity gap" id="202535.Edge min intensity gap" number_of_elements="1">
+      <Element index="0" value="50"/>
+    </Property>
+    <Property name="Min neighbors nb" id="202535.Min neighbors nb" number_of_elements="1">
+      <Element index="0" value="4"/>
+    </Property>
+    <Property name="Min neighborhood radius" id="202535.Min neighborhood radius" number_of_elements="1">
+      <Element index="0" value="0.1"/>
+    </Property>
+    <Property name="Min distance to sensor" id="202535.Min distance to sensor" number_of_elements="1">
+      <Element index="0" value="0.2"/>
+    </Property>
+    <Property name="Max distance to sensor" id="202535.Max distance to sensor" number_of_elements="1">
+      <Element index="0" value="40"/>
+    </Property>
+    <Property name="Ratio of points" id="202535.Ratio of points" number_of_elements="1">
+      <Element index="0" value="1"/>
+    </Property>
+  </Proxy>
+</SlamPresets>

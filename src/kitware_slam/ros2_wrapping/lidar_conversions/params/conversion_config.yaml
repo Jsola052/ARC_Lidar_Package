@@ -1,0 +1,29 @@
+########################################
+# Parameters for PointCloud conversion #
+########################################
+
+/lidar_conversions:
+  ros__parameters:
+    use_sim_time: False
+    nb_threads: 1 # Number of threads used in the conversion process
+    nb_lasers: 128 # Number of lasers in the lidar
+    # nb_lasers : 32
+    # nb_lasers : 64
+    # nb_lasers : 128
+
+    # Possible frequencies for the lidar, used in rotation duration computation, for velodyne
+    possible_frequencies: [5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15., 16., 17., 18., 19., 20.]
+
+  # For ouster:
+    # possible_frequencies: [10., 20.]
+
+  # For robosense :
+    # possible_frequencies: [5., 10., 20.]
+
+  # For hesai
+    # possible_frequencies: [5., 10., 20.]
+
+  # If the user knows exactly the frequency of the lidar, he can set it as :
+    # possible_frequencies: [10.]
+
+  # If the user has no idea of the possible frequencies of the lidar, delete the WHOLE line (including "possible_frequencies:")

@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="sensor_pkg">
+
+  <!--
+    Cleaned URDF:
+    base_link is now the actual center of the LiDAR/camera package.
+    The old SolidWorks origin has been removed.
+  -->
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="-0.61975 1.2619 -0.82464" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://sensor_pkg/meshes/base_link.STL"/>
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.894117647058823 0.894117647058823 0.894117647058823 1"/>
+      </material>
+    </visual>
+
+    <collision>
+      <origin xyz="-0.61975 1.2619 -0.82464" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://sensor_pkg/meshes/base_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="cam1_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://sensor_pkg/meshes/cam1_link.STL"/>
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.894117647058823 0.894117647058823 0.894117647058823 1"/>
+      </material>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://sensor_pkg/meshes/cam1_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="cam1_joint" type="fixed">
+    <origin xyz="-0.07669 0.00 0.015" rpy="0 -1.5708 0"/>
+    <parent link="base_link"/>
+    <child link="cam1_link"/>
+  </joint>
+
+  <link name="cam2_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://sensor_pkg/meshes/cam2_link.STL"/>
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.894117647058823 0.894117647058823 0.894117647058823 1"/>
+      </material>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://sensor_pkg/meshes/cam2_link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="cam2_joint" type="fixed">
+    <origin xyz="0.07669 0.0 0.015" rpy="3.1416 -1.5708 0"/>
+    <parent link="base_link"/>
+    <child link="cam2_link"/>
+  </joint>
+
+  <link name="lidar_Link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://sensor_pkg/meshes/lidar_Link.STL"/>
+      </geometry>
+      <material name="light_gray">
+        <color rgba="0.894117647058823 0.894117647058823 0.894117647058823 1"/>
+      </material>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://sensor_pkg/meshes/lidar_Link.STL"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="lidar_joint" type="fixed">
+    <origin xyz="0 0 0.04926" rpy="1.5708 0 0"/>
+    <parent link="base_link"/>
+    <child link="lidar_Link"/>
+  </joint>
+
+</robot>

@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>lidar_conversions</name>
+  <version>3.1.0</version>
+  <description>
+    Point type conversion from sensor driver to LidarPoint used in SLAM process.
+
+    The ROS Velodyne driver can be found at https://github.com/ros-drivers/velodyne.
+    The ROS Ouster driver can be found at https://github.com/ouster-lidar/ouster_example.
+    The ROS RSLidar driver can be found at https://github.com/RoboSense-LiDAR/ros_rslidar.
+
+    Note that point types are copied in external_include folder and need to be updated if drivers change
+  </description>
+
+  <!-- One maintainer tag required, multiple allowed, one person per tag -->
+  <maintainer email="julia.sanchez@kitware.com">Julia Sanchez</maintainer>
+
+  <!-- One license tag required, multiple allowed, one license per tag -->
+  <!-- Commonly used license strings: -->
+  <!--   BSD, MIT, Boost Software License, GPLv2, GPLv3, LGPLv2.1, LGPLv3 -->
+  <license>Apache License Version 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+
+  <build_depend>message_generation</build_depend>
+
+  <depend>rclcpp</depend>
+  <depend>pcl_ros</depend>
+  <depend>pcl_conversions</depend>
+  <depend>sensor_msgs</depend>
+  <depend>livox_ros_driver</depend>
+
+  <exec_depend>libpcl-common</exec_depend>
+  <exec_depend>libpcl-io</exec_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>.
+
+  <!-- package of rosidl to create interfaces-->
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <!-- The export tag contains other, unspecified, tags -->
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+
+</package>

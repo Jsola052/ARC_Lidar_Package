@@ -1,0 +1,17 @@
+#####################################
+#     SLAM evaluation parameters    #
+#####################################
+/lidar_slam_test:
+  ros__parameters:
+    # Path to the folder containing the reference results to compare with
+    ref_path: ""
+    # Path to the folder where to store the results
+    res_path: ""
+
+    # Thresholds on one pose comparison with reference
+    nb_frames_dropped: 5     # [nb] Maximum number of frames dropped over the whole trajectory
+    time_threshold: 0.01     # [s]  Maximum tolerated time difference to consider the test succeeded
+    angle_threshold: 3.      # [°]  Maximum tolerated anle difference to consider the test succeeded
+    position_threshold: 0.01 # [m]  Maximum tolerated position difference to consider the test succeeded
+
+    verbose: false

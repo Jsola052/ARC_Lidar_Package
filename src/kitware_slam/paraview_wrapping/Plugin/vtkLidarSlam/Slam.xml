@@ -1,0 +1,3082 @@
+<ServerManagerConfiguration>
+
+  <!-- Begin Online Slam -->
+  <ProxyGroup name="filters">
+    <SourceProxy name="SlamOnline"
+                 class="vtkSlam"
+                 label="SLAM (online)">
+
+      <Documentation
+        short_help="Performs real-time SLAM on the Lidar sensor's pointclouds."
+        long_help="Performs real-time SLAM on the Lidar sensor's pointclouds.">
+        The SLAM filter uses LiDAR sensor pointclouds to compute sensor's
+        trajectory and build a map of the environment.
+
+        The SLAM algorithm is composed of four sequential steps:
+
+          - Sampling strategy: extract keypoints that provide strong geometric information
+
+          - Ego-Motion: estimate sensor motion since last frame
+
+          - Localization: compute current frame pose in map using estimated Ego-Motion
+
+          - Map update : add current registered points in map
+
+        This filter performs real-time processing of input frames (it may skip
+        some frames if too slow) with live display.
+      </Documentation>
+
+      <InputProperty name="Input"
+                     command="SetInputConnection"
+                     label="Point Cloud"
+                     port_index="0">
+        <ProxyGroupDomain name="groups">
+          <Group name="sources"/>
+          <Group name="filters"/>
+        </ProxyGroupDomain>
+        <DataTypeDomain composite_data_supported="1"
+                        name="input_type">
+          <DataType value="vtkPolyData"/>
+        </DataTypeDomain>
+        <Documentation>
+          Set the input port to use where LiDAR point clouds are broadcasted.
+        </Documentation>
+      </InputProperty>
+
+      <InputProperty name="External Sensor Data"
+                     command="SetInputConnection"
+                     label="External Sensor Data"
+                     port_index="1"
+                     null_on_empty="1">
+        <Hints>
+          <Optional />
+        </Hints>
+        <ProxyGroupDomain name="groups">
+          <Group name="sources"/>
+          <Group name="filters"/>
+        </ProxyGroupDomain>
+        <DataTypeDomain name="input_type">
+          <DataType value="vtkTable"/>
+        </DataTypeDomain>
+        <Documentation>
+          Optional input connection for external sensor measurements.
+        </Documentation>
+      </InputProperty>
+
+      <OutputPort name="Current transformed frame"         index="0" id="port0" />
+      <OutputPort name="Trajectory"                        index="1" id="port1" />
+      <OutputPort name="Edge map"                          index="2" id="port2" />
+      <OutputPort name="Intensity edge map"                index="3" id="port3" />
+      <OutputPort name="Planar map"                        index="4" id="port4" />
+      <OutputPort name="Current edge keypoints"            index="5" id="port5" />
+      <OutputPort name="Current intensity edge keypoints"  index="6" id="port6" />
+      <OutputPort name="Current planar keypoints"          index="7" id="port7" />
+
+      <!-- ============= Paraview filter inputs/outputs options ============ -->
+
+      <Property name="Reset state"
+                command="Reset">
+        <Documentation>
+          Reset SLAM internal state : maps and trajectory are cleared,
+          current pose is set back to origin and clear and refill external sensor data.
+          This keeps parameters unchanged.
+        </Documentation>
+      </Property>
+
+      <Property name="Reset external sensors"
+                command="ResetSensors"
+                panel_visibility="advanced">
+        <Documentation>
+          Reset external sensor managers and measurements.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="OptionalInputDecorator" input_property="External Sensor Data" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="External sensors data file" value="" inverse="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Live sensor data" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </Property>
+
+      <Property name="Center to current pose"
+                command="ResetOdom"
+                panel_visibility="advanced">
+        <Documentation>
+          Reset SLAM odometry frame so the current pose is null in ODOM.
+          As it reduce numerical instability, this should be used regularly in outside environment every 200 meters for example.
+        </Documentation>
+      </Property>
+
+      <Property name="Align to external sensor reference"
+                label="Align to external sensor reference"
+                command="MoveOdomToExtPosesRefFrame"
+                panel_visibility="advanced">
+        <Documentation>
+          Move slam odom to the external sensor reference frame when external sensor data is available.
+          It can be used to get the georeferenced trajectory and maps.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="OptionalInputDecorator" input_property="External Sensor Data" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="External sensors data file" value="" inverse="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Live sensor data" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </Property>
+
+      <!--~~~~~~~~~~~~~~~~~~~~~~~~~ Inputs options ~~~~~~~~~~~~~~~~~~~~~~~~~~-->
+
+      <StringVectorProperty name="Reload trajectory"
+                            command="SetTrajectory"
+                            number_of_elements="1"
+                            default_values=""
+                            animateable="0"
+                            panel_visibility="advanced">
+        <FileListDomain name="files"/>
+        <Hints>
+          <FileChooser extensions="csv" file_description="csv file format" />
+        </Hints>
+        <Documentation>
+          Reload trajectory with pose and covariance information from a LidarView trajectory file.
+        </Documentation>
+      </StringVectorProperty>
+
+      <!-- Sensor data file must be csv.
+           A field time is necessary with same reference as Lidar data or TCP/UDP packets
+           Possible sensor fields are :
+           - odom for wheel odometry sensor
+           - [acc_x, acc_y, acc_z] for IMU signal
+           - [x,y,z,roll,pitch,yaw] for external absolute pose measurements (YXZ convention)
+           This file is loaded and used to add constraints or priors to the SLAM optimization -->
+      <StringVectorProperty name="External sensors data file"
+                            command="SetSensorData"
+                            number_of_elements="1"
+                            default_values=""
+                            animateable="0">
+        <FileListDomain name="files"/>
+        <Hints>
+          <FileChooser extensions="csv" file_description="csv file format" />
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="and">
+              <PropertyWidgetDecorator type="OptionalInputDecorator" input_property="External Sensor Data" inverse="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Live sensor data" value="0" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+        <Documentation>
+          The path of the external sensor data file to use.
+
+          This CSV file can have the following columns:
+
+          *Time*: Posix time, in seconds
+
+          *odom*: Wheel odometry, in meters
+
+          *acc_x/acc_y/acc_z*: Acceleration from IMU, in meters/second^2
+
+          *w_x/w_y/w_z*: Rotation velocity from IMU, in radians/second
+
+          *X/Y/Z/Rx(Roll)/Ry(Pitch)/Rz(Yaw)*: Absolute pose measurements in meters and radians (ZYX order)
+
+          *errX/errY/errZ/errRoll/errPitch/errYaw*: Estimated error in meters and radians
+
+          WARNING : these data should come along with a calibration file in the
+          same location named calibration_external_sensor.mat.
+          This calibration must contain the 4x4 calibration matrix representing
+          the transform from external poses sensor to Base frame (i.e. the tracked frame).
+
+          Example :
+
+             1 0 0 0.5
+
+             0 -1 0 2
+
+             0 0 -1 0.2
+
+             0 0 0 1
+
+          If this file is not found, the calibration is set to identity.
+          It is possible to automatically derive the calibration with a trajectory portion
+          using the Calibrate button.
+
+          NOTE : the sensor parameters can be modified in the "External sensors" parameters section
+          once the file is provided.
+        </Documentation>
+      </StringVectorProperty>
+
+      <IntVectorProperty name="Live sensor data"
+                         command="SetIsSensorDataLive"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Check this if the input external sensor data is live data
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="External sensors data file" value="" />
+        </Hints>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Point time relative to frame"
+                         command="SetPointTimeRelativeToFrame"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Check this if the input point time data is relative to the lidar frame time, such as with MCAP data.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Auto detect input arrays"
+                         command="SetAutoDetectInputArrays"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, SLAM filter will try to auto-detect the time, intensity
+          and laser ring id arrays to use depending on LiDAR model.
+        </Documentation>
+      </IntVectorProperty>
+
+      <!-- If auto-detection mode is disabled, user needs to specify input arrays to use -->
+      <StringVectorProperty name="Time array"
+                            command="SetInputArrayToProcess"
+                            number_of_elements="5"
+                            element_types="0 0 0 0 2"
+                            default_values_delimiter=";"
+                            default_values="0;0;0;0;timestamp"
+                            panel_visibility="advanced">
+        <ArrayListDomain attribute_type="Scalars" name="array_list">
+          <RequiredProperties>
+            <Property function="Input" name="Input" />
+          </RequiredProperties>
+        </ArrayListDomain>
+        <Documentation>
+          The points measurements timestamps.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto detect input arrays" value="0" />
+        </Hints>
+      </StringVectorProperty>
+
+      <DoubleVectorProperty name="Time to seconds factor"
+                            command="SetTimeToSecondsFactor"
+                            number_of_elements="1"
+                            default_values="1."
+                            panel_visibility="advanced">
+        <Documentation>
+          Conversion factor from the input timestamp unit to seconds.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto detect input arrays" value="0" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <StringVectorProperty name="Intensity array"
+                            command="SetInputArrayToProcess"
+                            number_of_elements="5"
+                            element_types="0 0 0 0 2"
+                            default_values_delimiter=";"
+                            default_values="1;0;0;0;intensity"
+                            panel_visibility="advanced">
+        <ArrayListDomain attribute_type="Scalars" name="array_list">
+          <RequiredProperties>
+            <Property function="Input" name="Input" />
+          </RequiredProperties>
+        </ArrayListDomain>
+        <Documentation>
+          The points intensity/reflectivity measurements.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto detect input arrays" value="0" />
+        </Hints>
+      </StringVectorProperty>
+
+      <StringVectorProperty name="Laser ring id array"
+                            command="SetInputArrayToProcess"
+                            number_of_elements="5"
+                            element_types="0 0 0 0 2"
+                            default_values_delimiter=";"
+                            default_values="2;0;0;0;laser_id"
+                            panel_visibility="advanced">
+        <ArrayListDomain attribute_type="Scalars" name="array_list">
+          <RequiredProperties>
+            <Property function="Input" name="Input" />
+          </RequiredProperties>
+        </ArrayListDomain>
+        <Documentation>
+          The laser ring ids that acquired points.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto detect input arrays" value="0" />
+        </Hints>
+      </StringVectorProperty>
+
+      <!--~~~~~~~~~~~~~~~~~~~~~~~~~ Outputs options ~~~~~~~~~~~~~~~~~~~~~~~~~-->
+
+      <IntVectorProperty name="Keypoint maps output mode"
+                         command="SetOutputKeypointsMaps"
+                         number_of_elements="1"
+                         default_values="1">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Disabled"/>
+          <Entry value="1" text="Full maps"/>
+          <Entry value="2" text="Sub-maps"/>
+        </EnumerationDomain>
+        <Documentation>
+          If DISABLED, no maps are outputed
+
+          If FULL_MAPS, all the keypoints from maps are outputed
+
+          If SUB_MAPS, only the keypoints used as target for the current frame are outputed
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Keypoints maps update step"
+                         command="SetMapsUpdateStep"
+                         number_of_elements="1"
+                         default_values="10"
+                         panel_visibility="advanced">
+        <Documentation>
+          The maps will be updated once over **step** new frames in the filter output to save time.
+          NOTE : the maps are still updated in the SLAM internal process.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="enabled_state" property="Keypoint maps output mode" inverse="1" value="0" />
+        </Hints>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Trajectory frequency"
+                         command="SetTrajFrequency"
+                         number_of_elements="1"
+                         default_values="-1"
+                         panel_visibility="advanced">
+        <Documentation>
+          Output frequency for the trajectory poses. The poses in between two frames are computed using interpolation.
+          If an higher frequency external sensor is used (poses or IMU),
+          it is used to do the interpolation.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Advanced return mode"
+                         command="SetAdvancedReturnMode"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If advanced return mode is enabled, extra arrays are added to the
+          outputs to display some of the SLAM internal variables :
+
+           - Trajectory : matching summary, localization error summary, confidence estimators
+
+           - Output transformed frame : planarity, intensity gap, keypoint validity
+
+           - Extracted keypoints : ICP matching results
+
+          It is very useful when debugging or checking the SLAM behavior.
+          If disabled, the overlap estimation is not computed.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Output undistorted current frame"
+                         command="SetOutputUndistortedFrame"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, SLAM filter will get registered pointcloud in the current frame with undistortion process
+          If disabled, the current frame is transformed directly with the current estimated pose to save time.
+          When undistortion mode is set to EXTERNAL, disabling this parameter is recommended to optimize performance.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Output current keypoints"
+                         command="SetOutputCurrentKeypoints"
+                         number_of_elements="1"
+                         default_values="0">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, SLAM filter will output keypoints extracted from current
+          frame. Otherwise, these filter outputs are left empty to save time.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Output keypoints in WORLD coordinates"
+                         command="SetOutputKeypointsInWorldCoordinates"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If disabled, return raw keypoints extracted from current frame in BASE
+          coordinates, without undistortion.
+
+          If enabled, return keypoints in WORLD coordinates, optionally
+          undistorted if undistortion is activated.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Output current keypoints" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <PropertyGroup label="Filter inputs/outputs options">
+        <Property name="Reset state" />
+        <Property name="Reset external sensors" />
+        <Property name="Center to current pose" />
+        <Property name="Align to external sensor reference" />
+        <Property name="Reload trajectory" />
+        <Property name="External sensors data file" />
+        <Property name="Live sensor data" />
+        <Property name="Point time relative to frame" />
+        <Property name="Auto detect input arrays" />
+        <Property name="Time array" />
+        <Property name="Time to seconds factor" />
+        <Property name="Intensity array" />
+        <Property name="Laser ring id array" />
+        <Property name="Keypoint maps output mode" />
+        <Property name="Keypoints maps update step" />
+        <Property name="Trajectory frequency" />
+        <Property name="Advanced return mode" />
+        <Property name="Output undistorted current frame" />
+        <Property name="Output current keypoints" />
+        <Property name="Output keypoints in WORLD coordinates" />
+      </PropertyGroup>
+
+      <!-- ============================ General ============================ -->
+
+      <IntVectorProperty name="2d mode"
+                         command="SetTwoDMode"
+                         number_of_elements="1"
+                         default_values="0">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Optimize only 2D pose in BASE coordinates.
+          Only X, Y (ground coordinates) and yaw (rZ) will be optimized,
+          whereas Z (elevation), rX (roll) and rY (pitch) will be held constant.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use edges"
+                         command="EnableEdges"
+                         number_of_elements="1"
+                         default_values="1" >
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, edge keypoints are used in optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use intensity edges"
+                         command="EnableIntensityEdges"
+                         number_of_elements="1"
+                         default_values="1" >
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, intensity edge keypoints are used in optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use planes"
+                         command="EnablePlanes"
+                         number_of_elements="1"
+                         default_values="1" >
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, plane keypoints are used in optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use blobs"
+                         command="EnableBlobs"
+                         number_of_elements="1"
+                         default_values="0" >
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, blob keypoints are used in optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+
+      <IntVectorProperty name="Failure detection"
+                         command="SetFailureDetectionEnabled"
+                         number_of_elements="1"
+                         default_values="0">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Enable/Disable failure detection. In case it is enabled, and
+          a failure detection is triggered, the mapping and logging will be stopped
+          and the process will wait for a good registration result.
+          Thresholds for the failure detection are modifiable in confidence section.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use pose graph"
+                         command="SetUsePoseGraph"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, display the pose graph optimization category.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Logging timeout"
+                            command="SetLoggingTimeout"
+                            number_of_elements="1"
+                            default_values="1800."
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum duration in seconds on which to keep states in memory.
+          This duration might be increased if a pose graph optimization is planned or if the failure detection is enabled.
+          It can be reduced to 0 if there are memory constraints.
+          In any case, a minimum number of states is stored, to be able to interpolate, independently of this timeout value.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Interpolation model"
+                         command="SetInterpolation"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Linear"/>
+          <Entry value="1" text="Quadratic"/>
+          <Entry value="2" text="Cubic"/>
+        </EnumerationDomain>
+        <Documentation>
+          Determine the interpolation model which allows to get a pose (position + orientation)
+          at a specific timestamp from a list of stamped poses.
+          This interpolation is used in ego motion, undistortion and when using
+          external poses, raw IMU data or a landmark detector.
+          Options are :
+
+          LINEAR:     linear interpolation between 2 poses
+
+          QUADRATIC : quadratic spline from a set of 3 poses
+
+          CUBIC :     cubic spline from a set of 4 poses
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Ego-Motion mode"
+                         command="SetEgoMotion"
+                         number_of_elements="1"
+                         default_values="1">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Disabled"/>
+          <Entry value="1" text="Motion extrapolation"/>
+          <Entry value="2" text="Registration on previous frame"/>
+          <Entry value="3" text="Motion extrapolation + Registration"/>
+          <Entry value="4" text="External"/>
+          <Entry value="5" text="External OR motion extrapolation"/>
+        </EnumerationDomain>
+        <Documentation>
+          How to estimate Ego-Motion (approximate relative motion since last frame).
+          The ego-motion step aims to give a fast and approximate initialization of new
+          frame world pose to ensure faster and more precise convergence in Localization step.
+
+          If DISABLED, no ego-motion step is performed : relative motion is Identity, new estimated
+          Tworld is equal to previous Tworld. Fast, but may lead to unstable and imprecise
+          Localization step if motion is important.
+
+          If MOTION EXTRAPOLATION, previous motion is linearly extrapolated to estimate new Tworld pose
+          from the 2 previous poses. Fast and precise if motion is roughly constant and continuous.
+
+          If REGISTRATION ON PREVIOUS FRAME, Trelative (and therefore Tworld) is estimated by globally
+          registering new frame on previous frame. Slower and need textured enough environment, but do not
+          rely on constant motion hypothesis.
+
+          If MOTION EXTRAPOLATION + REGISTRATION ON PREVIOUS FRAME, previous motion is linearly extrapolated
+          to estimate new Tworld pose from the 2 previous poses. Then this estimation is refined by globally
+          registering new frame on previous frame. Slower and need textured enough environment, but should
+          be more precise and rely less on constant motion hypothesis.
+
+          If EXTERNAL, the pose is initialized using external sensor information. Sensor data file must have been loaded.
+          If no external sensor info correspond to Lidar times, no prior egomotion is set.
+
+          If EXTERNAL_OR_MOTION_EXTRAPOLATION, the pose is initialized using external sensor information. Sensor data file must have been loaded.
+          If no external sensor info correspond to Lidar times, a motion extrapolation is performed to get an initial pose.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Ego motion limit"
+                            command="SetEgoMotionLimit"
+                            number_of_elements="1"
+                            default_values="5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Motion limit to validate ego motion estimation with poses from external sensor.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Ego-Motion mode" value="4" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Ego-Motion mode" value="5" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Undistortion mode"
+                         command="SetUndistortion"
+                         number_of_elements="1"
+                         default_values="2">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Disabled"/>
+          <Entry value="1" text="Once"/>
+          <Entry value="2" text="Refined"/>
+          <Entry value="3" text="External"/>
+        </EnumerationDomain>
+        <Documentation>
+          Undistortion mode, to correct rolling shutter distortion during frame acquisition.
+          The undistortion should greatly improve the accuracy for smooth motions,
+          but might be unstable for high-frequency motions.
+
+          DISABLED: no undistortion is performed.
+
+          ONCE: undistortion is performed only once using estimated ego-motion.
+
+          REFINED: undistortion is iteratively refined using optimized ego-motion.
+
+          EXTERNAL: undistortion is performed once using external poses information.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Verbosity level"
+                         command="SetVerbosity"
+                         number_of_elements="1"
+                         default_values="0" >
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="0) Errors, warnings or one time info"/>
+          <Entry value="1" text="1) 0 + Frame total processing duration"/>
+          <Entry value="2" text="2) 1 + Main steps summary"/>
+          <Entry value="3" text="3) 2 + Sub-problems processing duration"/>
+          <Entry value="4" text="4) 3 + Ceres optimization summary"/>
+          <Entry value="5" text="5) 4 + Logging/maps memory usage"/>
+        </EnumerationDomain>
+        <Documentation>
+          Indicate verbosity level to display more or less information in console:
+
+           (0) print errors, warnings or one time info;
+
+           (1) 0 + frame number and total processing duration;
+
+           (2) 1 + extracted features, used keypoints, localization variance, ego-motion and localization summary;
+
+           (3) 2 + sub-problems processing duration;
+
+           (4) 3 + ceres optimization summary;
+
+           (5) 4 + logging/maps memory usage.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Number of threads"
+                         command="SetNbThreads"
+                         number_of_elements="1"
+                         default_values="4">
+        <IntRangeDomain name="range" min="1" max="16"/>
+        <Documentation>
+          Max number of threads to use for parallel processing.
+        </Documentation>
+      </IntVectorProperty>
+
+      <PropertyGroup label="General Parameters">
+        <Property name="2d mode" />
+        <Property name="Use edges" />
+        <Property name="Use intensity edges" />
+        <Property name="Use planes" />
+        <Property name="Use blobs" />
+        <Property name="Failure detection" />
+        <Property name="Use pose graph" />
+        <Property name="Logging timeout" />
+        <Property name="Interpolation model"/>
+        <Property name="Ego-Motion mode" />
+        <Property name="Ego motion limit" />
+        <Property name="Undistortion mode" />
+        <Property name="Verbosity level" />
+        <Property name="Number of threads" />
+      </PropertyGroup>
+
+      <!-- ============================ Initialization ============================ -->
+
+      <!-- Path prefix of SLAM maps (if empty, no map is loaded).
+           The files must be pcd.
+           The new maps replace the previous computed ones-->
+      <StringVectorProperty name="Initial map files prefix"
+                            command="SetInitMapPrefix"
+                            number_of_elements="1"
+                            default_values=""
+                            animateable="0"
+                            panel_visibility="advanced">
+        <FileListDomain name="files"/>
+        <Hints>
+          <FileChooser extensions="pcd" file_description="pcd file format" />
+        </Hints>
+        <Documentation>
+          The path prefix of the initial map files.
+
+          3 maps will be searched and loaded if found:
+              path/to/maps/prefix*edges.pcd*
+              path/to/maps/prefix*planes.pcd*
+              path/to/maps/prefix*blobs.pcd*
+        </Documentation>
+      </StringVectorProperty>
+
+      <!-- Init the pose of the SLAM
+           Warning: a click on the Reset state / Init button applies this pose -->
+      <DoubleVectorProperty name="Initial pose XYZ"
+                            command="SetInitialPoseTranslation"
+                            number_of_elements="3"
+                            default_values="0. 0. 0."
+                            panel_visibility="advanced">
+        <Documentation>
+          Translation elements of the initial SLAM pose in format X, Y, Z
+          Warning: a click on the Reset state / Init button applies this pose
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Initial pose RPY"
+                            command="SetInitialPoseRotation"
+                            number_of_elements="3"
+                            default_values="0. 0. 0."
+                            panel_visibility="advanced">
+        <Documentation>
+          Rotation elements of the initial SLAM pose in format Roll, Pitch, Yaw
+          Warning: a click on the Reset state / Init button applies this pose
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <!-- Initialize the pose and maps of the SLAM -->
+      <Property name="Init"
+                command="SetInitialSlam"
+                panel_visibility="advanced">
+        <Documentation>
+          Apply the initialization of SLAM with the input pose and maps.
+        </Documentation>
+      </Property>
+
+      <PropertyGroup label="SLAM initialization">
+        <Property name="Initial map files prefix" />
+        <Property name="Initial pose XYZ" />
+        <Property name="Initial pose RPY" />
+        <Property name="Init" />
+      </PropertyGroup>
+
+
+      <!-- ==================== Transform tree ==================== -->
+
+      <StringVectorProperty name="Set initial pose"
+                            command="SetInitialPose"
+                            number_of_elements="1"
+                            default_values=""
+                            animateable="0"
+                            panel_visibility="advanced">
+        <FileListDomain name="files"/>
+        <Hints>
+          <FileChooser extensions="mat" file_description="mat file format" />
+        </Hints>
+        <Documentation>
+          Move the reference frame of the lidar trajectory so that the first pose
+          corresponds to the input pose.
+          The file must contain the 4x4 transformation matrix representing
+          the new initial pose.
+          The file extension should be ".mat".
+
+          Example :
+
+             1 0 0 0.5
+
+             0 -1 0 2
+
+             0 0 -1 0.2
+
+             0 0 0 1
+        </Documentation>
+      </StringVectorProperty>
+
+      <StringVectorProperty name="Set current pose"
+                            command="SetCurrentPose"
+                            number_of_elements="1"
+                            default_values=""
+                            animateable="0"
+                            panel_visibility="advanced">
+        <FileListDomain name="files"/>
+        <Hints>
+          <FileChooser extensions="mat" file_description="mat file format" />
+        </Hints>
+        <Documentation>
+          Move the reference frame of the lidar trajectory so that the current pose
+          corresponds to the input pose.
+          The file must contain the 4x4 transformation matrix representing
+          the new current pose.
+          The file extension should be ".mat".
+
+          Example :
+
+             1 0 0 0.5
+
+             0 -1 0 2
+
+             0 0 -1 0.2
+
+             0 0 0 1
+        </Documentation>
+      </StringVectorProperty>
+
+      <PropertyGroup label="Transform tree">
+        <Property name="Set initial pose" />
+        <Property name="Set current pose" />
+      </PropertyGroup>
+
+      <!-- ================ Keypoints extraction Parameters ================ -->
+
+      <SubProxy command="SetKeyPointsExtractor" label="Keypoints extractor">
+        <Proxy name="KeyPointsExtractor"
+               proxygroup="KeyPointsExtractors"
+               proxyname="SpinningSensorKeypointExtractor" />
+        <ExposedProperties>
+          <PropertyGroup label="Spinning Sensor Keypoints Extractor parameters">
+            <Property name="Mode" />
+            <Property name="Min neighbors nb" panel_visibility="advanced" />
+            <Property name="Min neighborhood radius" panel_visibility="advanced" />
+            <Property name="Min distance to sensor" panel_visibility="advanced" />
+            <Property name="Max distance to sensor" panel_visibility="advanced" />
+            <Property name="Min azimuth angle" panel_visibility="advanced" />
+            <Property name="Max azimuth angle" panel_visibility="advanced" />
+            <Property name="Min laser beam to surface angle" panel_visibility="advanced" />
+            <Property name="Plane threshold angle" panel_visibility="advanced" />
+            <Property name="Edge threshold angle" panel_visibility="advanced" />
+            <Property name="Edge min depth gap" panel_visibility="advanced" />
+            <Property name="Edge min nb of missing points" panel_visibility="advanced" />
+            <Property name="Edge min intensity gap" panel_visibility="advanced" />
+            <Property name="Maximum keypoints number" panel_visibility="advanced" />
+            <Property name="Voxel grid resolution" panel_visibility="advanced" />
+            <Property name="Ratio of points" panel_visibility="advanced" />
+          </PropertyGroup>
+        </ExposedProperties>
+      </SubProxy>
+
+      <!-- ===================== Ego Motion Parameters ===================== -->
+
+      <IntVectorProperty name="ICP-Optimization iterations EM"
+                         command="SetEgoMotionICPMaxIter"
+                         number_of_elements="1"
+                         default_values="4"
+                         panel_visibility="advanced">
+        <Documentation>
+          The registration of the current frame on the previous frame is performed
+          iteratively, building point-to-model Mahalanobis distance functions
+          during an ICP step, followed by a non-linear optimization of these residuals.
+
+          This parameter is the number of ICP-optimization iterations to perform.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="LM optimization iterations EM"
+                         command="SetEgoMotionLMMaxIter"
+                         number_of_elements="1"
+                         default_values="15"
+                         panel_visibility="advanced">
+        <Documentation>
+          Max number of iterations of the Levenberg-Marquardt optimizer to solve
+          the ICP problem
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Max neighbors distance EM"
+                            command="SetEgoMotionMaxNeighborsDistance"
+                            number_of_elements="1"
+                            default_values="5."
+                            panel_visibility="advanced">
+        <Documentation>
+          Max distance (in meters) allowed between a keypoint and its neighbors from the
+          previous frame to build an ICP match
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Edge nb of neighbors EM"
+                         command="SetEgoMotionEdgeNbNeighbors"
+                         number_of_elements="1"
+                         default_values="8"
+                         panel_visibility="advanced">
+        <Documentation>
+          Initial number of edge neighbors to extract, that will be filtered out
+          to keep best candidates.
+
+          At least 2 points are needed to build a valid line model.
+          If below, line models won't be usable and will be ignored.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Edge nb min filtered neighbors EM"
+                         command="SetEgoMotionEdgeMinNbNeighbors"
+                         number_of_elements="1"
+                         default_values="3"
+                         panel_visibility="advanced">
+        <Documentation>
+          Min number of resulting filtered edge neighbors (max 1 per scan line)
+          to approximate the corresponding line model.
+
+          At least 2 points are needed to build a valid line model.
+          If below, line models won't be usable and will be ignored.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Edge max model error EM"
+                            command="SetEgoMotionEdgeMaxModelError"
+                            number_of_elements="1"
+                            default_values="0.2"
+                            panel_visibility="advanced">
+        <Documentation>
+          Max RMSE (in meters) allowed between neighborhood and its fitted line model to
+          keep only accurate models
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Plane nb of neighbors EM"
+                         command="SetEgoMotionPlaneNbNeighbors"
+                         number_of_elements="1"
+                         default_values="5"
+                         panel_visibility="advanced">
+        <Documentation>
+          Number of plane neighbors to extract to approximate the corresponding
+          plane model.
+
+          At least 3 points are needed to build a valid plane model.
+          If below, plane models won't be usable and will be ignored.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Planarity threshold EM"
+                            command="SetEgoMotionPlanarityThreshold"
+                            number_of_elements="1"
+                            default_values="0.04"
+                            panel_visibility="advanced">
+        <Documentation>
+          To check the plane neighborhood shape, the PCA eigenvalues must respect:
+
+          *EigenValue1 / EigenValue2 >= planarityThreshold*
+
+          with *EigenValue2 >= EigenValue1 >= EigenValue0*
+
+          The thickness of the plane can be checked with the max model error.
+          Note : eigenvalues have m^2 unit.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Plane max model error EM"
+                            command="SetEgoMotionPlaneMaxModelError"
+                            number_of_elements="1"
+                            default_values="0.1"
+                            panel_visibility="advanced">
+        <Documentation>
+          Max RMSE (in meters) allowed between neighborhood and its fitted plane model to
+          keep only accurate models
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Init saturation distance EM"
+                            command="SetEgoMotionInitSaturationDistance"
+                            number_of_elements="1"
+                            default_values="5."
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum distance (in meters) beyond which the residual errors are
+          saturated to robustify the optimization against outlier constraints.
+          The residuals will be robustified by Tukey loss (50% of saturation at
+          *SaturationDistance/2*, fully saturated at *SaturationDistance*).
+
+          The saturation distance at each iteration is linearly interpolated
+          between *Init* and *Final* saturation distance parameters.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Final saturation distance EM"
+                            command="SetEgoMotionFinalSaturationDistance"
+                            number_of_elements="1"
+                            default_values="1."
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum distance (in meters) beyond which the residual errors are
+          saturated to robustify the optimization against outlier constraints.
+          The residuals will be robustified by Tukey loss (50% of saturation at
+          *SaturationDistance/2*, fully saturated at *SaturationDistance*).
+
+          The saturation distance at each iteration is linearly interpolated
+          between *Init* and *Final* saturation distance parameters.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <PropertyGroup label="Ego-Motion registration ICP matching and optimization parameters">
+        <Property name="ICP-Optimization iterations EM" />
+        <Property name="LM optimization iterations EM" />
+        <Property name="Max neighbors distance EM" />
+        <Property name="Edge nb of neighbors EM" />
+        <Property name="Edge nb min filtered neighbors EM" />
+        <Property name="Edge max model error EM" />
+        <Property name="Plane nb of neighbors EM" />
+        <Property name="Planarity threshold EM" />
+        <Property name="Plane max model error EM" />
+        <Property name="Init saturation distance EM" />
+        <Property name="Final saturation distance EM" />
+        <Hints>
+          <!-- Show these parameters only if Ego-motion registration is enabled (Paraview >5.6)-->
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Ego-Motion mode" value="2" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Ego-Motion mode" value="3" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </PropertyGroup>
+
+      <!-- ==================== Localization Parameters ==================== -->
+
+      <IntVectorProperty name="ICP-Optimization iterations"
+                         command="SetLocalizationICPMaxIter"
+                         number_of_elements="1"
+                         default_values="3"
+                         panel_visibility="advanced">
+        <Documentation>
+          The registration of the current frame on the map is performed iteratively,
+          building point-to-model Mahalanobis distance functions during an ICP step,
+          followed by a non-linear optimization of these residuals.
+
+          This parameter is the number of ICP-optimization iterations to perform.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="LM optimization iterations"
+                         command="SetLocalizationLMMaxIter"
+                         number_of_elements="1"
+                         default_values="15"
+                         panel_visibility="advanced">
+        <Documentation>
+          Max number of iterations of the Levenberg-Marquardt optimizer to solve
+          the ICP problem
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Max neighbors distance"
+                            command="SetLocalizationMaxNeighborsDistance"
+                            number_of_elements="1"
+                            default_values="5."
+                            panel_visibility="advanced">
+        <Documentation>
+          Max distance (in meters) allowed between a keypoint and its neighbors from the map
+          to build an ICP match
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Edge nb of neighbors"
+                         command="SetLocalizationEdgeNbNeighbors"
+                         number_of_elements="1"
+                         default_values="9"
+                         panel_visibility="advanced">
+        <Documentation>
+          Initial number of edge neighbors to extract, that will be filtered out
+          to keep best candidates.
+
+          At least 2 points are needed to build a valid line model.
+          If below, line models won't be usable and will be ignored.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use edges" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Edge nb min filtered neighbors"
+                         command="SetLocalizationEdgeMinNbNeighbors"
+                         number_of_elements="1"
+                         default_values="5"
+                         panel_visibility="advanced">
+        <Documentation>
+          Min number of resulting filtered edge neighbors (close to best line
+          candidate) to approximate the corresponding line model.
+
+          At least 2 points are needed to build a valid line model.
+          If below, line models won't be usable and will be ignored.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use edges" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Edge max model error"
+                            command="SetLocalizationEdgeMaxModelError"
+                            number_of_elements="1"
+                            default_values="0.2"
+                            panel_visibility="advanced">
+        <Documentation>
+          Max RMSE (in meters) allowed between neighborhood and its fitted line model to
+          keep only accurate models
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use edges" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Plane nb of neighbors"
+                         command="SetLocalizationPlaneNbNeighbors"
+                         number_of_elements="1"
+                         default_values="7"
+                         panel_visibility="advanced">
+        <Documentation>
+          Number of plane neighbors to extract to approximate the corresponding
+          plane model.
+
+          At least 3 points are needed to build a valid plane model.
+          If below, plane models won't be usable and will be ignored.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Planarity threshold"
+                            command="SetLocalizationPlanarityThreshold"
+                            number_of_elements="1"
+                            default_values="0.04"
+                            panel_visibility="advanced">
+        <Documentation>
+          To check the plane neighborhood shape, the PCA eigenvalues must respect:
+
+          *EigenValue1 / EigenValue2 >= planarityThreshold*
+
+          with *EigenValue2 >= EigenValue1 >= EigenValue0*
+
+          The thickness of the plane can be checked with the max model error.
+          Note : eigenvalues have m^2 unit.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Plane max model error"
+                            command="SetLocalizationPlaneMaxModelError"
+                            number_of_elements="1"
+                            default_values="0.1"
+                            panel_visibility="advanced">
+        <Documentation>
+          Max RMSE (in meters) allowed between neighborhood and its fitted plane model to
+          keep only accurate models
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Blob nb of neighbors"
+                         command="SetLocalizationBlobNbNeighbors"
+                         number_of_elements="1"
+                         default_values="10"
+                         panel_visibility="advanced">
+        <Documentation>
+          Number of blob neighbors to extract to approximate the corresponding
+          ellipsoid model.
+
+          At least 4 points are needed to build a valid blob model.
+          If below, blob models won't be usable and will be ignored.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use blobs" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Init saturation distance"
+                            command="SetLocalizationInitSaturationDistance"
+                            number_of_elements="1"
+                            default_values="2."
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum distance (in meters) beyond which the residual errors are
+          saturated to robustify the optimization against outlier constraints.
+          The residuals will be robustified by Tukey loss (50% of saturation at
+          *SaturationDistance/2*, fully saturated at *SaturationDistance*).
+
+          The saturation distance at each iteration is linearly interpolated
+          between *Init* and *Final* saturation distance parameters.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Final saturation distance"
+                            command="SetLocalizationFinalSaturationDistance"
+                            number_of_elements="1"
+                            default_values="0.5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum distance (in meters) beyond which the residual errors are
+          saturated to robustify the optimization against outlier constraints.
+          The residuals will be robustified by Tukey loss (50% of saturation at
+          *SaturationDistance/2*, fully saturated at *SaturationDistance*).
+
+          The saturation distance at each iteration is linearly interpolated
+          between *Init* and *Final* saturation distance parameters.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <PropertyGroup label="Localization ICP matching and optimization parameters">
+        <Property name="ICP-Optimization iterations" />
+        <Property name="LM optimization iterations" />
+        <Property name="Max neighbors distance" />
+        <Property name="Edge nb of neighbors" />
+        <Property name="Edge nb min filtered neighbors" />
+        <Property name="Edge max model error" />
+        <Property name="Plane nb of neighbors" />
+        <Property name="Planarity threshold" />
+        <Property name="Plane max model error" />
+        <Property name="Blob nb of neighbors" />
+        <Property name="Init saturation distance" />
+        <Property name="Final saturation distance" />
+      </PropertyGroup>
+
+      <!-- ======================== Map Parameters ========================= -->
+
+      <Property name="Clear maps and log"
+                command="ClearMapsAndLog"
+                panel_visibility="advanced">
+        <Documentation>
+          Clear the actual maps and the logged keypoints
+          but keep the external sensor settings and the
+          actual state (pose and ego-motion).
+        </Documentation>
+      </Property>
+
+      <IntVectorProperty name="Mapping mode"
+                         command="SetMapUpdate"
+                         number_of_elements="1"
+                         default_values="2">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Disabled"/>
+          <Entry value="1" text="Add keypoints"/>
+          <Entry value="2" text="Update"/>
+        </EnumerationDomain>
+        <Documentation>
+          How to update the map.
+
+          If DISABLED, the map is not updated. Only the initialization map is used.
+
+          If ADD KEYPOINTS, the current keypoints are added to the map in unexplored areas but initial map points remain untouched.
+
+          If UPDATE, all the current keypoints are added to the map and the initial map points can disappear.
+
+          Warning : the first mode can be set only if an initial map exists
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Submap extraction mode"
+                         command="SetSubmapMode"
+                         number_of_elements="1"
+                         default_values="0">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Bounding box"/>
+          <Entry value="1" text="profile"/>
+        </EnumerationDomain>
+        <Documentation>
+          How to extract the submap of target keypoints.
+
+          If BOUNDING BOX, the bounding box of the current frame is extracted from the map.
+
+          If PROFILE, only the implied voxels and their direct neighbors are extracted from the map.
+
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Decaying threshold"
+                            command="SetVoxelGridDecayingThreshold"
+                            number_of_elements="1"
+                            default_values="-1."
+                            panel_visibility="advanced">
+        <Documentation>
+          Time threshold (in seconds) to deprecate a removable keypoint.
+          This allows the map to be dynamic. Warning: if no keyframe is added during this time
+          (motion is null), the entire removable maps will disappear.
+          **WARNING** : If the decay time is increased, the maps will be rebuilt to recover forgotten points.
+          This process can take some time.
+          -1 to disable this feature (infinite time).
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Keyframe distance threshold"
+                            command="SetKfDistanceThreshold"
+                            number_of_elements="1"
+                            default_values="0.5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum distance (in meters) to travel since last keyframe to add a new one.
+          Only keyframes' points are added to the map.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Keyframe angle threshold"
+                            command="SetKfAngleThreshold"
+                            number_of_elements="1"
+                            default_values="5."
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum angle (in degrees) to rotate since last keyframe to add a new one.
+          Only keyframes' points are added to the map.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Edges map sampling mode"
+                         command="SetVoxelGridSamplingModeEdges"
+                         number_of_elements="1"
+                         default_values="2">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="First"/>
+          <Entry value="1" text="Last"/>
+          <Entry value="2" text="Intensity"/>
+          <Entry value="3" text="Center point"/>
+          <Entry value="4" text="Centroid"/>
+        </EnumerationDomain>
+        <Documentation>
+          Which point to set in a voxel when downsampling the map using a voxel grid.
+
+          If FIRST, the first point acquired is kept,
+
+          If LAST, the last point acquired is selected,
+
+          If INTENSITY, the point with max intensity is selected,
+
+          If CENTER_POINT, the point closest to the voxel center is selected,
+
+          If CENTROID, the centroid of all points having landed to the voxel is computed.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use edges" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Intensity edges map sampling mode"
+                         command="SetVoxelGridSamplingModeIntensityEdges"
+                         number_of_elements="1"
+                         default_values="2">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="First"/>
+          <Entry value="1" text="Last"/>
+          <Entry value="2" text="Intensity"/>
+          <Entry value="3" text="Center point"/>
+          <Entry value="4" text="Centroid"/>
+        </EnumerationDomain>
+        <Documentation>
+          Which point to set in a voxel when downsampling the map using a voxel grid.
+
+          If FIRST, the first point acquired is kept,
+
+          If LAST, the last point acquired is selected,
+
+          If INTENSITY, the point with max intensity is selected,
+
+          If CENTER_POINT, the point closest to the voxel center is selected,
+
+          If CENTROID, the centroid of all points having landed to the voxel is computed.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use intensity edges" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Planes map sampling mode"
+                         command="SetVoxelGridSamplingModePlanes"
+                         number_of_elements="1"
+                         default_values="2">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="First"/>
+          <Entry value="1" text="Last"/>
+          <Entry value="2" text="Intensity"/>
+          <Entry value="3" text="Center point"/>
+          <Entry value="4" text="Centroid"/>
+        </EnumerationDomain>
+        <Documentation>
+          Which point to set in a voxel when downsampling the map using a voxel grid.
+
+          If FIRST, the first point acquired is kept,
+
+          If LAST, the last point acquired is selected,
+
+          If INTENSITY, the point with max intensity is selected,
+
+          If CENTER_POINT, the point closest to the voxel center is selected,
+
+          If CENTROID, the centroid of all points having landed to the voxel is computed.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Blobs map sampling mode"
+                         command="SetVoxelGridSamplingModeBlobs"
+                         number_of_elements="1"
+                         default_values="2">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="First"/>
+          <Entry value="1" text="Last"/>
+          <Entry value="2" text="Intensity"/>
+          <Entry value="3" text="Center point"/>
+          <Entry value="4" text="Centroid"/>
+        </EnumerationDomain>
+        <Documentation>
+          Which point to set in a voxel when downsampling the map using a voxel grid.
+
+          If FIRST, the first point acquired is kept,
+
+          If LAST, the last point acquired is selected,
+
+          If INTENSITY, the point with max intensity is selected,
+
+          If CENTER_POINT, the point closest to the voxel center is selected,
+
+          If CENTROID, the centroid of all points having landed to the voxel is computed.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use blobs" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Edges map resolution"
+                            command="SetVoxelGridLeafSizeEdges"
+                            number_of_elements="1"
+                            default_values="0.3"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum size of a leaf (in meters) when downsampling the edges map using
+          a voxel grid filter. It should not be too big or some high
+          frequency geometric information will be lost. It should not
+          be too low or the geometric information will be too local and
+          computation time may increase.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use edges" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Intensity edges map resolution"
+                            command="SetVoxelGridLeafSizeIntensityEdges"
+                            number_of_elements="1"
+                            default_values="0.2"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum size of a leaf (in meters) when downsampling the intensity edges map using
+          a voxel grid filter. It should not be too big or some high
+          frequency geometric information will be lost. It should not
+          be too low or the geometric information will be too local and
+          computation time may increase.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use intensity edges" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Planes map resolution"
+                            command="SetVoxelGridLeafSizePlanes"
+                            number_of_elements="1"
+                            default_values="0.6"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum size of a leaf (in meters) when downsampling the planes map using
+          a voxel grid filter. It should not be too big or some high
+          frequency geometric information will be lost. It should not
+          be too low or the geometric information will be too local and
+          computation time may increase.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Blobs map resolution"
+                            command="SetVoxelGridLeafSizeBlobs"
+                            number_of_elements="1"
+                            default_values="0.5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum size of a leaf (in meters) when downsampling the blobs map using
+          a voxel grid filter. It should not be too big or some high
+          frequency geometric information will be lost. It should not
+          be too low or the geometric information will be too local and
+          computation time may increase.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use blobs" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Rolling grid dimension"
+                         command="SetVoxelGridSize"
+                         number_of_elements="1"
+                         default_values="50"
+                         panel_visibility="advanced">
+        <Documentation>
+          Number of voxels in each direction of the rolling grid. It should be
+          large enough to store a local map around current pose, but a too high
+          value largely increase memory consumption.
+
+          Each map is a *Rolling Grid*, storing points in a local outer cube of
+          size *number of voxels x voxel resolution* meters. When a point should
+          be added in the map but lies outside this outer cube, the whole map is
+          rolled towards this point in order to save it, forgetting previous
+          voxels in the opposite direction.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Rolling grid resolution"
+                            command="SetVoxelGridResolution"
+                            number_of_elements="1"
+                            default_values="10."
+                            panel_visibility="advanced">
+        <Documentation>
+          Resolution of a voxel of the rolling grid (in meters per voxel).
+          It should not be too big or too much points will be considered when
+          trying to match the frame at the current position.
+          This does not impact accuracy but only speed.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Min number of frames per voxel"
+                            command="SetVoxelGridMinFramesPerVoxel"
+                            number_of_elements="1"
+                            default_values="2"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum number of frames that must have reached a map voxel
+          to consider the voxel contains a target keypoint.
+          It is used to reject moving objects from the map.
+          WARNING: this parameter may need to be adapted to the velocity of the robot,
+          and the parameterization, notably the leaf sizes (directly linked) and keyframes parameters (inversely linked).
+          0 disables the moving objects rejection and takes all keypoints available from the maps.
+        </Documentation>
+      </IntVectorProperty>
+
+      <PropertyGroup label="Map parameters">
+        <Property name="Clear maps and log" />
+        <Property name="Mapping mode" />
+        <Property name="Submap extraction mode" />
+        <Property name="Decaying threshold" />
+        <Property name="Keyframe distance threshold" />
+        <Property name="Keyframe angle threshold" />
+        <Property name="Edges map sampling mode" />
+        <Property name="Intensity edges map sampling mode" />
+        <Property name="Planes map sampling mode" />
+        <Property name="Blobs map sampling mode" />
+        <Property name="Edges map resolution" />
+        <Property name="Intensity edges map resolution" />
+        <Property name="Planes map resolution" />
+        <Property name="Blobs map resolution" />
+        <Property name="Rolling grid dimension" />
+        <Property name="Rolling grid resolution" />
+        <Property name="Min number of frames per voxel" />
+      </PropertyGroup>
+
+     <!-- ==================== External sensors' parameters ==================== -->
+
+     <IntVectorProperty name="Planar trajectory"
+                         command="SetPlanarTrajectory"
+                         number_of_elements="1"
+                         default_values="0">
+        <BooleanDomain name="bool" />
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" inverse="1" property="External sensors data file" value="" />
+        </Hints>
+        <Documentation>
+          If checked, the automatic calibration between the external sensor and the tracked frame
+          will not take the world z axis into account because of the missing degree of liberty.
+          This is used when the Calibrate button is clicked.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Lever arm"
+                            command="SetLeverArm"
+                            number_of_elements="1"
+                            default_values="-1.">
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" inverse="1" property="External sensors data file" value="" />
+        </Hints>
+        <Documentation>
+          Hint to perform the calibration between the external sensor and the tracked frame.
+          It represents the distance between the tracked frame position and the external sensor position in meters.
+          This is used when the Calibrate button is clicked.
+          -1. disabled the feature.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <Property name="Calibrate"
+                command="Calibrate">
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" inverse="1" property="External sensors data file" value="" />
+        </Hints>
+        <Documentation>
+          Compute the calibration between the external sensor and the tracked frame (base)
+          using the external data and the current SLAM trajectory.
+          At each click, the calibration is reset to identity beforehand.
+          The trajectory used must be trustworthy and must cover the 6 degrees of liberty.
+          Please check lever arm and planar trajectory options for more information.
+        </Documentation>
+      </Property>
+
+      <DoubleVectorProperty name="Wheel odom weight"
+                            command="SetWheelOdomWeight"
+                            number_of_elements="1"
+                            default_values="0."
+                            panel_visibility="advanced">
+        <Documentation>
+          Weight to apply on the wheel odometer constraint.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Wheel odometry relative mode"
+                         command="SetWheelOdomRelative"
+                         number_of_elements="1"
+                         default_values="0">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, the wheel odometry information is integrated as a relative constraint since last frame
+          If disabled, the wheel odometry information is integrated as an absolute constraint since first frame
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="IMU gravity weight"
+                            command="SetGravityWeight"
+                            number_of_elements="1"
+                            default_values="0."
+                            panel_visibility="advanced">
+        <Documentation>
+          Weight to apply on the IMU gravity constraint.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="IMU weight"
+                            command="SetImuWeight"
+                            number_of_elements="1"
+                            default_values="0."
+                            panel_visibility="advanced">
+        <Documentation>
+          Weight to apply on the IMU constraint.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Gravity"
+                            command="SetImuGravity"
+                            number_of_elements="3"
+                            default_values="0. 0. -9.80511"
+                            panel_visibility="advanced">
+        <Documentation>
+          Gravity represented in world reference frame (defined by initTransform and first frame).
+          Default supposes z upwards.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Pose weight"
+                            command="SetPoseWeight"
+                            number_of_elements="1"
+                            default_values="0."
+                            panel_visibility="advanced">
+        <Documentation>
+          Weight to apply on the Pose constraint ( which may come from a GNSS sensor ).
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Pose distance threshold"
+                            command="SetPoseDistanceThreshold"
+                            number_of_elements="1"
+                            default_values="0"
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum distance between two consecutive poses for interpolation to be considered valid.
+          The check is disabled when the value is 0.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Auto correct external pose drop"
+                         command="SetEnableAutoCorrectExtPose"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, detect automatically a loss of the external pose signal. When the
+          external pose is restored, it will trigger a pose graph optimization process.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Max translation error"
+                            command="SetPoseMaxStdTranslation"
+                            number_of_elements="1"
+                            default_values="0.1"
+                            panel_visibility="advanced">
+        <Documentation>
+          The threshold for translation error used to determine if an external pose is considered reliable. (in meters)
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto correct external pose drop" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Max rotation error"
+                            command="SetPoseMaxStdRotation"
+                            number_of_elements="1"
+                            default_values="1"
+                            panel_visibility="advanced">
+        <Documentation>
+          The threshold for rotation error used to determine if an external pose is considered reliable. (in degrees)
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto correct external pose drop" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Sensor drop time threshold"
+                            command="SetExtPoseDropThreshold"
+                            number_of_elements="1"
+                            default_values="10."
+                            panel_visibility="advanced">
+        <Documentation>
+          The minimum time that unreliable external pose measurements must persist before the system considers the external sensor as interrupted.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto correct external pose drop" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Imu reset threshold"
+                         command="SetImuResetThreshold"
+                         number_of_elements="1"
+                         default_values="400">
+        <Documentation>
+          When raw IMU data are used, a graph is built between SLAM poses and IMU preintegration
+          to refine the IMU bias. This threshold allows to reset the graph every n frames to maintain
+          a reasonable graph size.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Imu update"
+                         command="SetImuUpdate"
+                         number_of_elements="1"
+                         default_values="1">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, the poses deduced preintegrated from IMU measurements are updated at each new SLAM output
+          If disabled, the last preintegration is used without update
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Time threshold"
+                            command="SetSensorTimeThreshold"
+                            number_of_elements="1"
+                            default_values="0.5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum time in seconds between 2 successive external sensor measurements to interpolate them
+          and integrate them in the optimization.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Time synchronization"
+                         command="SetSensorTimeSynchronization"
+                         number_of_elements="1"
+                         default_values="1">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Network"/>
+          <Entry value="1" text="Lidar frame"/>
+        </EnumerationDomain>
+        <Documentation>
+          How to synchronize temporally external sensors.
+
+          If NETWORK, the external sensors are synchronized onto network time (packet reception time)
+
+          If LIDAR FRAME, the external sensors are synchronized onto the Lidar frame time (header time).
+        </Documentation>
+      </IntVectorProperty>
+
+      <PropertyGroup label="External sensors">
+        <Property name="Planar trajectory" />
+        <Property name="Lever arm" />
+        <Property name="Calibrate" />
+        <Property name="Wheel odom weight" />
+        <Property name="Wheel odometry relative mode" />
+        <Property name="IMU gravity weight" />
+        <Property name="Pose weight" />
+        <Property name="Pose distance threshold" />
+        <Property name="Auto correct external pose drop" />
+        <Property name="Max translation error" />
+        <Property name="Max rotation error" />
+        <Property name="Sensor drop time threshold" />
+        <Property name="Imu reset threshold" />
+        <Property name="Imu update" />
+        <Property name="Time threshold" />
+        <Property name="Time synchronization" />
+        <Property name="IMU weight" />
+        <Property name="Gravity" />
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="OptionalInputDecorator" input_property="External Sensor Data" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="External sensors data file" value="" inverse="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Live sensor data" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </PropertyGroup>
+
+      <!-- ================ Confidence estimator parameters ================ -->
+
+      <DoubleVectorProperty name="Overlap sampling ratio"
+                            command="SetOverlapSamplingRatio"
+                            number_of_elements="1"
+                            default_values="0.25"
+                            panel_visibility="advanced">
+        <Documentation>
+          Ratio of points [0,1] from the current frame to compute
+          overlap on.
+
+          The overlap estimates how much the current scan is well registered on
+          the current maps.
+
+          Downsampling accelerates the overlap computation, but may be less
+          precise. A ratio of 1 uses all points, 0.5 uses 1 point over 2, etc.,
+          0 disables overlap computation.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Advanced return mode" value="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Failure detection" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Acceleration limits"
+                            command="SetAccelerationLimits"
+                            number_of_elements="2"
+                            default_values="1e3 1e3"
+                            panel_visibility="advanced">
+        <Documentation>
+          Acceleration thresholds to evaluate and discard pose.
+
+          translation acceleration: m/s^2
+
+          rotation acceleration: °/s^2
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Advanced return mode" value="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Failure detection" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Velocity limits"
+                            command="SetVelocityLimits"
+                            number_of_elements="2"
+                            default_values="1e6 1e6"
+                            panel_visibility="advanced">
+        <Documentation>
+          Velocity thresholds to evaluate and discard pose.
+
+          translation speed: m/s
+
+          rotation speed: °/s
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Advanced return mode" value="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Failure detection" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Pose limits"
+                            command="SetPoseLimits"
+                            number_of_elements="2"
+                            default_values="1e6 1e6"
+                            panel_visibility="advanced">
+        <Documentation>
+          Pose thresholds to evaluate and discard pose.
+
+          translation: m
+
+          rotation: °
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Advanced return mode" value="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Failure detection" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Window for average and derivative"
+                         command="SetConfidenceWindow"
+                         number_of_elements="1"
+                         default_values="10"
+                         panel_visibility="advanced">
+        <Documentation>
+          Number of frames onto which to perform an average on confidence
+          values and/or to compute the derivatives (including velocity/acceleration).
+          If too high, some failure cases might be not detected
+          If too low, too many failure cases might be detected
+        </Documentation>
+         <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Failure detection" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Threshold on overlap gap"
+                         command="SetOverlapDerivativeThreshold"
+                         number_of_elements="1"
+                         default_values="0.04"
+                         panel_visibility="advanced">
+        <Documentation>
+          Threshold on overlap derivative to trigger on failure
+        </Documentation>
+         <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Failure detection" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Threshold on position error"
+                         command="SetPositionErrorThreshold"
+                         number_of_elements="1"
+                         default_values="0.15"
+                         panel_visibility="advanced">
+        <Documentation>
+          Threshold on position error to trigger on failure
+        </Documentation>
+         <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Failure detection" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Recovery time"
+                         command="SetRecoveryTime"
+                         number_of_elements="1"
+                         default_values="1."
+                         panel_visibility="advanced">
+        <Documentation>
+          In case of failure, duration (in seconds) to come back in time to previous state
+        </Documentation>
+         <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Failure detection" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <PropertyGroup label="Confidence estimator parameters">
+        <Property name="Overlap sampling ratio" />
+        <Property name="Acceleration limits" />
+        <Property name="Velocity limits" />
+        <Property name="Pose limits" />
+        <Property name="Window for average and derivative" />
+        <Property name="Threshold on overlap gap" />
+        <Property name="Threshold on position error" />
+        <Property name="Recovery time" />
+      </PropertyGroup>
+
+      <!-- ============================ Pose Graph Optimization ============================ -->
+
+      <Property name="Optimize Graph With IMU"
+                command="OptimizeGraphWithIMU"
+                panel_widget="command_pause_button"
+                panel_visibility="advanced">
+        <Documentation>
+          Use the optimized poses from the IMU/SLAM graph to update the trajectory and the maps.
+          IMU data must be available, GTSAM must be found and the logging timeOut must be set appropriately.
+        </Documentation>
+      </Property>
+
+      <Property name="Optimize Graph"
+                command="OptimizeGraph"
+                panel_widget="command_pause_button"
+                panel_visibility="advanced">
+        <Documentation>
+          Launch pose graph optimization with options below. The Logging timeout needs to be set appropriately.
+        </Documentation>
+      </Property>
+
+      <StringVectorProperty name="Save g2o file"
+                            command="SetG2oFileName"
+                            number_of_elements="1"
+                            default_values=""
+                            animateable="0"
+                            panel_visibility="advanced">
+        <FileListDomain name="files"/>
+        <Documentation>
+          Define the name of the g2o file and save the pose graph.
+        </Documentation>
+      </StringVectorProperty>
+
+      <DoubleVectorProperty name="Covariance scale"
+                            command="SetCovarianceScale"
+                            number_of_elements="1"
+                            default_values="1. "
+                            panel_visibility="advanced">
+        <Documentation>
+          Scale to increase or decrease SLAM pose covariances.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Graph iterations"
+                         command="SetNbGraphIterations"
+                         number_of_elements="1"
+                         default_values="100"
+                         panel_visibility="advanced">
+        <Documentation>
+          Number of graph optimization iterations.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use loop closure constraint"
+                         command="EnablePGOConstraintLoopClosure"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, loop closure constraint are used in pose graph optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use GPS constraint"
+                         command="EnablePGOConstraintGPS"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, GPS constraint are used in pose graph optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use external pose constraint"
+                         command="EnablePGOConstraintExtPose"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, external pose constraint are used in pose graph optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use manual position constraint"
+                         command="EnablePGOConstraintManualPosition"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, the Manual landmark observations are used as absolute position anchors in PGO.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Define anchor points"
+                         command="SetUseFixedPoseAnchors"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, allows adding fixed pose anchors by point id.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use manual position constraint" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <PropertyGroup label="Pose Graph Optimization">
+        <Property name="Optimize Graph With IMU" />
+        <Property name="Optimize Graph" />
+        <Property name="Save g2o file" />
+        <Property name="Covariance scale" />
+        <Property name="Graph iterations" />
+        <Property name="Use loop closure constraint" />
+        <Property name="Use GPS constraint" />
+        <Property name="Use external pose constraint" />
+        <Property name="Use manual position constraint" />
+        <Property name="Define anchor points" />
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use pose graph" value="1" />
+        </Hints>
+      </PropertyGroup>
+
+      <IntVectorProperty name="Pick Pose Anchor Tools"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_widget="slam_pick_trajectory_id_widget">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Click to select a point id and write it into fixed anchor points.
+        </Documentation>
+        <Hints>
+          <ButtonText value="Pick fixed pose index"/>
+          <ArrayName value="Id" />
+          <WriteProperty value="Fixed anchor points" />
+          <AppendMode value="1" />
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="and">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use manual position constraint" value="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Define anchor points" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Fixed anchor points"
+                            command="AddFixedAnchorById"
+                            clean_command="ClearFixedAnchors"
+                            number_of_elements_per_command="1"
+                            repeat_command="1"
+                            panel_visibility="advanced">
+        <Documentation>
+          Add fixed pose anchors as rows of [id], where id is a Trajectory point id.
+          On Optimize Graph, ids are converted to times and applied.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="and">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use manual position constraint" value="1" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Define anchor points" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Pick Point Id Tools"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_widget="slam_pick_trajectory_id_widget">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Click to select a point and write its point id for later conversion.
+        </Documentation>
+        <Hints>
+          <ButtonText value="Pick trajectory index"/>
+          <ArrayName value="Id" />
+          <WriteProperty value="QueryPointId" />
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use manual position constraint" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="QueryPointId"
+                            number_of_elements="1"
+                            default_values="-1"
+                            panel_visibility="never" />
+
+      <DoubleVectorProperty name="Seed position"
+                            command="SetManualAnchorHandle"
+                            number_of_elements="3"
+                            default_values="0 0 0"
+                            panel_widget="slam_seed_handle">
+        <Documentation>
+          World-space position (X, Y, Z) of the interactive seed handle.
+          Toggle "Show interactive handle" to show/hide the 3D widget, and use
+          "Recenter handle" to move it to the current view's focal point.
+          This position is used when appending manual anchors.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use manual position constraint" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Manual position anchors"
+                            command="AddManualPositionAnchorById"
+                            clean_command="ClearManualAnchorsPositionId"
+                            number_of_elements_per_command="4"
+                            repeat_command="1"
+                            panel_visibility="advanced">
+        <Documentation>
+          Add manual position anchors as rows of [id x y z], where id is a Trajectory point id. On Optimize Graph, ids are converted to times and applied.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use manual position constraint" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Append Manual Anchor"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_widget="slam_append_anchor_widget">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Click to append a row [id x y z] using the picked point id and the current handle position..
+        </Documentation>
+        <Hints>
+          <WriteProperty value="Manual position anchors" />
+          <IdProperty value="QueryPointId" />
+          <SeedProperty value="Seed position" />
+          <IndexPort value="1" />
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use manual position constraint" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <PropertyGroup label="Manual anchor constraint parameters">
+        <Property name="Pick Pose Anchor Tools" />
+        <Property name="Fixed anchor points" />
+        <Property name="Pick Point Id Tools" />
+        <Property name="Seed position" />
+        <Property name="Manual position anchors" />
+        <Property name="Append Manual Anchor" />
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use manual position constraint" value="1" />
+        </Hints>
+      </PropertyGroup>
+
+      <!-- ============================ Loop Closure ============================ -->
+
+      <IntVectorProperty name="LoopDetected"
+                         command="SetLoopDetected"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="never">
+        <BooleanDomain name="bool" />
+      </IntVectorProperty>
+
+      <IntVectorProperty information_only="1"
+                         name="LoopDetectedInfo"
+                         default_values="0"
+                         command="GetLoopDetected" >
+        <SimpleIntInformationHelper />
+      </IntVectorProperty>
+
+      <DoubleVectorProperty information_only="1"
+                            name="LoopClosurePositionInfo"
+                            number_of_elements="3"
+                            default_values="0 0 0"
+                            command="GetLoopClosurePosition" >
+        <SimpleDoubleInformationHelper />
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty information_only="1"
+                            name="LoopDetectionSizeInfo"
+                            number_of_elements="1"
+                            default_values="5"
+                            command="GetLoopRevisitedMapEndRange" >
+        <SimpleDoubleInformationHelper />
+      </DoubleVectorProperty>
+
+      <Property name="AddLoopDetectionButton"
+                command="AddLoopDetection"
+                panel_widget="command_button"
+                panel_visibility="never" />
+
+      <IntVectorProperty information_only="1"
+                         name="LoopDetectorInfo"
+                         default_values="0"
+                         command="GetLoopDetector" >
+        <SimpleIntInformationHelper />
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Loop closure detector"
+                         command="SetLoopDetector"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="External"/>
+          <Entry value="1" text="Teaserpp"/>
+          <Entry value="2" text="Nearest pose"/>
+        </EnumerationDomain>
+        <Documentation>
+          Choose a detector for loop closure:
+
+           (0) External: Loop indices should be provided by a csv file
+
+           (1) Teaserpp: look for similar structure as current frame in previous map using teaserpp
+
+           (2) Nearest pose: look for nearest pose for current pose
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use loop closure constraint" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <StringVectorProperty name="Load loop indices"
+                            command="LoadLoopDetectionIndices"
+                            number_of_elements="1"
+                            default_values=""
+                            animateable="0"
+                            panel_visibility="advanced">
+        <FileListDomain name="files"/>
+        <Hints>
+          <FileChooser extensions="csv" file_description="csv file format" />
+        </Hints>
+        <Documentation>
+          The path of the external loop closure indices file.
+          This CSV file must have 2 columns:
+
+          *queryIdx*: query frame indices
+
+          *revisitedIdx*: revisited frame indices,
+
+          with a header "queryIdx,revisitedIdx"
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="and">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="0" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use loop closure constraint" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </StringVectorProperty>
+
+      <Property name="Detect Loop"
+                command="DetectLoop"
+                panel_widget="command_pause_button"
+                panel_visibility="advanced">
+        <Documentation>
+          Detect loop closure for current frame.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="and">
+            <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" inverse="1" property="Loop closure detector" value="0" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use loop closure constraint" value="1" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </Property>
+
+      <Property name="Reset loop detection"
+                command="ClearLoopDetections"
+                panel_visibility="advanced">
+        <Documentation>
+          Clear all previous detections.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" inverse="1" property="Loop closure detector" value="0" />
+        </Hints>
+      </Property>
+
+      <DoubleVectorProperty name="Query map start range"
+                            command="SetLoopQueryMapStartRange"
+                            number_of_elements="1"
+                            default_values="-5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Mid size (in meters) of the query submap. A submap is built with frames in the range
+          [frame_position + start_range, frame_position + end_range].
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="0" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="2" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Query map range"
+                            command="SetLoopQueryMapStartRange"
+                            number_of_elements="1"
+                            default_values="-5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Size (in meters) of the query submap. Should be negative.
+          A submap is built with the previous frames of the query index frame laying in the range distance.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+
+      <DoubleVectorProperty name="Query map end range"
+                            command="SetLoopQueryMapEndRange"
+                            number_of_elements="1"
+                            default_values="5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Mid size (in meters) of the query submap. A submap is built with frames in the range
+          [frame_position + start_range, frame_position + end_range].
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="0" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="2" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Revisited map start range"
+                            command="SetLoopRevisitedMapStartRange"
+                            number_of_elements="1"
+                            default_values="-5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Mid size (in meters) of the revisited submap. A submap is built with frames in the range
+          [frame_position + start_range, frame_position + end_range].
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="0" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="2" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Revisited map range"
+                            command="SetLoopRevisitedMapStartRange"
+                            number_of_elements="1"
+                            default_values="-5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Size (in meters) of the revisited submap. Should be negative.
+          A submap is built with the previous frames of the revisited index frame laying in the range distance.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Revisited map end range"
+                            command="SetLoopRevisitedMapEndRange"
+                            number_of_elements="1"
+                            default_values="5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Mid size (in meters) of the revisited submap. A submap is built with frames in the range
+          [frame_position + start_range, frame_position + end_range].
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="CompositeDecorator">
+            <Expression type="or">
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="0" />
+              <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="2" />
+            </Expression>
+          </PropertyWidgetDecorator>
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Loop gap length"
+                         command="SetLoopGapLength"
+                         number_of_elements="1"
+                         default_values="10."
+                         panel_visibility="advanced">
+        <Documentation>
+          Travelled distance (in meters) before the query frame in which no loop will be searched.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" inverse="1" property="Loop closure detector" value="0" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Loop sample step"
+                         command="SetLoopSampleStep"
+                         number_of_elements="1"
+                         default_values="5"
+                         panel_visibility="advanced">
+        <Documentation>
+          Distance step in meters between each submap to test loop closure.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" inverse="1" property="Loop closure detector" value="0" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Evaluation distance"
+                         command="SetLoopEvaluationDistanceThreshold"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <Documentation>
+          Distance threshold between two positions to validate the loop detection.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="2" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Add offset"
+                         command="SetLoopEnableOffset"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Add an offset to loop closure transform prior in case of high drift during the loop.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Loop closure detector" value="0" />
+        </Hints>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Advanced settings"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, display the loop closure localization ICP matching and optimization parameters.
+        </Documentation>
+      </IntVectorProperty>
+
+      <PropertyGroup label="Loop closure parameters">
+        <Property name="Loop closure detector" />
+        <Property name="Load loop indices" />
+        <Property name="Detect Loop" />
+        <Property name="Reset loop detection" />
+        <Property name="Query map start range" />
+        <Property name="Query map range" />
+        <Property name="Query map end range" />
+        <Property name="Revisited map start range" />
+        <Property name="Revisited map range" />
+        <Property name="Revisited map end range" />
+        <Property name="Loop gap length" />
+        <Property name="Loop sample step" />
+        <Property name="Evaluation distance" />
+        <Property name="Add offset" />
+        <Property name="Advanced settings" />
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use loop closure constraint" value="1" />
+        </Hints>
+      </PropertyGroup>
+
+        <!-- ==================== Loop Closure Localization Parameters ==================== -->
+      <IntVectorProperty name="Use sub maps"
+                         command="SetLoopICPWithSubmap"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Enable the registration between two sub maps instead of registering a single frame to a sub map.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="ICP-Optimization iterations LC"
+                         command="SetLoopICPMaxIter"
+                         number_of_elements="1"
+                         default_values="100"
+                         panel_visibility="advanced">
+        <Documentation>
+          The registration of the current frame on the map is performed iteratively,
+          building point-to-model Mahalanobis distance functions during an ICP step,
+          followed by a non-linear optimization of these residuals.
+
+          This parameter is the number of ICP-optimization iterations to perform.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="LM optimization iterations LC"
+                         command="SetLoopLMMaxIter"
+                         number_of_elements="1"
+                         default_values="100"
+                         panel_visibility="advanced">
+        <Documentation>
+          Max number of iterations of the Levenberg-Marquardt optimizer to solve
+          the ICP problem
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Max neighbors distance LC"
+                            command="SetLoopMaxNeighborsDistance"
+                            number_of_elements="1"
+                            default_values="5."
+                            panel_visibility="advanced">
+        <Documentation>
+          Max distance (in meters) allowed between a keypoint and its neighbors from the map
+          to build an ICP match
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Edge nb of neighbors LC"
+                         command="SetLoopEdgeNbNeighbors"
+                         number_of_elements="1"
+                         default_values="9"
+                         panel_visibility="advanced">
+        <Documentation>
+          Initial number of edge neighbors to extract, that will be filtered out
+          to keep best candidates.
+
+          At least 2 points are needed to build a valid line model.
+          If below, line models won't be usable and will be ignored.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use edges" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Edge nb min filtered neighbors LC"
+                         command="SetLoopEdgeMinNbNeighbors"
+                         number_of_elements="1"
+                         default_values="5"
+                         panel_visibility="advanced">
+        <Documentation>
+          Min number of resulting filtered edge neighbors (close to best line
+          candidate) to approximate the corresponding line model.
+
+          At least 2 points are needed to build a valid line model.
+          If below, line models won't be usable and will be ignored.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use edges" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Edge max model error LC"
+                            command="SetLoopEdgeMaxModelError"
+                            number_of_elements="1"
+                            default_values="0.2"
+                            panel_visibility="advanced">
+        <Documentation>
+          Max RMSE (in meters) allowed between neighborhood and its fitted line model to
+          keep only accurate models
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use edges" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Plane nb of neighbors LC"
+                         command="SetLoopPlaneNbNeighbors"
+                         number_of_elements="1"
+                         default_values="7"
+                         panel_visibility="advanced">
+        <Documentation>
+          Number of plane neighbors to extract to approximate the corresponding
+          plane model.
+
+          At least 3 points are needed to build a valid plane model.
+          If below, plane models won't be usable and will be ignored.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Planarity threshold LC"
+                            command="SetLoopPlanarityThreshold"
+                            number_of_elements="1"
+                            default_values="0.04"
+                            panel_visibility="advanced">
+        <Documentation>
+          To check the plane neighborhood shape, the PCA eigenvalues must respect:
+
+          *EigenValue1 / EigenValue2 >= planarityThreshold*
+
+          with *EigenValue2 >= EigenValue1 >= EigenValue0*
+
+          The thickness of the plane can be checked with the max model error.
+          Note : eigenvalues have m^2 unit.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Plane max model error LC"
+                            command="SetLoopPlaneMaxModelError"
+                            number_of_elements="1"
+                            default_values="0.1"
+                            panel_visibility="advanced">
+        <Documentation>
+          Max RMSE (in meters) allowed between neighborhood and its fitted plane model to
+          keep only accurate models
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use planes" value="1" />
+        </Hints>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Blob nb of neighbors LC"
+                         command="SetLoopBlobNbNeighbors"
+                         number_of_elements="1"
+                         default_values="10"
+                         panel_visibility="advanced">
+        <Documentation>
+          Number of blob neighbors to extract to approximate the corresponding
+          ellipsoid model.
+
+          At least 4 points are needed to build a valid blob model.
+          If below, blob models won't be usable and will be ignored.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Use blobs" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Init saturation distance LC"
+                            command="SetLoopInitSaturationDistance"
+                            number_of_elements="1"
+                            default_values="2."
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum distance (in meters) beyond which the residual errors are
+          saturated to robustify the optimization against outlier constraints.
+          The residuals will be robustified by Tukey loss (50% of saturation at
+          *SaturationDistance/2*, fully saturated at *SaturationDistance*).
+
+          The saturation distance at each iteration is linearly interpolated
+          between *Init* and *Final* saturation distance parameters.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Final saturation distance LC"
+                            command="SetLoopFinalSaturationDistance"
+                            number_of_elements="1"
+                            default_values="0.5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum distance (in meters) beyond which the residual errors are
+          saturated to robustify the optimization against outlier constraints.
+          The residuals will be robustified by Tukey loss (50% of saturation at
+          *SaturationDistance/2*, fully saturated at *SaturationDistance*).
+
+          The saturation distance at each iteration is linearly interpolated
+          between *Init* and *Final* saturation distance parameters.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <PropertyGroup label="Loop closure localization ICP matching and optimization parameters">
+        <Property name="Use sub maps" />
+        <Property name="ICP-Optimization iterations LC" />
+        <Property name="LM optimization iterations LC" />
+        <Property name="Max neighbors distance LC" />
+        <Property name="Edge nb of neighbors LC" />
+        <Property name="Edge nb min filtered neighbors LC" />
+        <Property name="Edge max model error LC" />
+        <Property name="Plane nb of neighbors LC" />
+        <Property name="Planarity threshold LC" />
+        <Property name="Plane max model error LC" />
+        <Property name="Blob nb of neighbors LC" />
+        <Property name="Init saturation distance LC" />
+        <Property name="Final saturation distance LC" />
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Advanced settings" value="1" />
+        </Hints>
+      </PropertyGroup>
+
+    </SourceProxy>
+  </ProxyGroup>
+  <!-- End Online Slam -->
+
+  <!-- Begin Offline Slam -->
+  <ProxyGroup name="filters">
+    <SourceProxy name="SlamOffline"
+                 class="vtkSlamManager"
+                 label="SLAM (offline)"
+                 base_proxygroup="filters"
+                 base_proxyname="SlamOnline">
+
+      <Documentation
+        short_help="Performs offline processing SLAM on the Lidar sensor's pointclouds."
+        long_help="Performs offline processing SLAM on the Lidar sensor's pointclouds.">
+        The SLAM filter uses LiDAR sensor pointclouds to compute sensor's
+        trajectory and build a map of the environment.
+
+        The SLAM algorithm is composed of four sequential steps:
+
+          - Sampling strategy: extract keypoints that provide strong geometric information
+
+          - Ego-Motion: estimate sensor motion since last frame
+
+          - Localization: compute current frame pose in map using estimated Ego-Motion
+
+          - Map update : add current registered points in map
+
+        This filter performs offline processing of all input frames without live display.
+      </Documentation>
+
+      <IntVectorProperty name="All frames"
+                         command="SetAllFrames"
+                         number_of_elements="1"
+                         default_values="1">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          Process all frames of the recording.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="First frame"
+                         command="SetFirstFrame"
+                         number_of_elements="1"
+                         default_values="0">
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="enabled_state" property="All frames" value="0" />
+        </Hints>
+        <Documentation>
+          The first frame to process.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Last frame"
+                         command="SetLastFrame"
+                         number_of_elements="1"
+                         default_values="1">
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="enabled_state" property="All frames" value="0" />
+        </Hints>
+        <Documentation>
+          The last frame to process.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Step size"
+                         command="SetStepSize"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <Documentation>
+          Process one frame every StepSize frames (e.g. every (1) frame, every
+          2 frames, every 3 frames, and so on).
+          A step size of 1 means that all frames between the first and the last
+          (included) will be used. This property can be useful to trade
+          robustness (step size equal to 1) and accuracy for speed (step size
+          greater than 1).
+        </Documentation>
+      </IntVectorProperty>
+
+      <PropertyGroup label="Offline SLAM manager parameters">
+        <Property name="All frames" />
+        <Property name="First frame" />
+        <Property name="Last frame" />
+        <Property name="Step size" />
+      </PropertyGroup>
+
+    </SourceProxy>
+  </ProxyGroup>
+  <!-- End Offline Slam -->
+
+  <!-- Begin KeyPointsExtractor -->
+  <ProxyGroup name="KeyPointsExtractors">
+    <Proxy name="SpinningSensorKeypointExtractor"
+           class="vtkSpinningSensorKeypointExtractor"
+           label="Spinning Sensor Keypoint Extractor">
+
+      <Documentation
+        short_help="Extract keypoints from a spinning LiDAR sensor pointcloud."
+        long_help="Extract edges (geometric + intensity based), planes and blobs keypoints from a spinning LiDAR sensor pointcloud.">
+        Extract edges, planes and blobs keypoints from a spinning LiDAR sensor pointcloud.
+      </Documentation>
+
+      <IntVectorProperty name="Mode"
+                         command="SetMode"
+                         number_of_elements="1"
+                         default_values="0">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Sparse"/>
+          <Entry value="1" text="Dense"/>
+        </EnumerationDomain>
+        <Documentation>
+          How to extract the keypoints.
+
+          If DENSE, a vertex map is built to analyse the frame.
+
+          If SPARSE, the lines are analysed independently.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Min neighbors nb"
+                         command="SetMinNeighNb"
+                         number_of_elements="1"
+                         default_values="4"
+                         panel_visibility="advanced">
+        <Documentation>
+          Minimum number of neighbors to use on each side of current point to estimate
+          the points curvature score.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Min neighborhood radius"
+                            command="SetMinNeighRadius"
+                            number_of_elements="1"
+                            default_values="0.10"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum distance of the farthest neighbor to use on each side of current point to estimate
+          the points curvature score.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Min distance to sensor"
+                            command="SetMinDistanceToSensor"
+                            number_of_elements="1"
+                            default_values="1.5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum distance in meters between a point and the sensor to be processed for
+          the keypoint extraction. In other words, all points too close from the
+          sensor are automatically rejected.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Max distance to sensor"
+                            command="SetMaxDistanceToSensor"
+                            number_of_elements="1"
+                            default_values="200"
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum distance in meters between a point and the sensor to be processed for
+          the keypoint extraction. In other words, all points too far from the
+          sensor are automatically rejected.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Min azimuth angle"
+                            command="SetAzimuthMin"
+                            number_of_elements="1"
+                            default_values="0"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum azimuth angle in degrees to extract a keypoint. This allows to not etract false edges due to permanent occlusions
+          (due to vehicle/robot/pedestrian) or to handle reduced field of view cases. Space from min to max azimuth compels with the right thumb rule.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Max azimuth angle"
+                            command="SetAzimuthMax"
+                            number_of_elements="1"
+                            default_values="360"
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum azimuth angle in degrees to extract a keypoint. This allows to not etract false edges due to permanent occlusions
+          (due to vehicle/robot/pedestrian) or to handle reduced field of view cases. Space from min to max azimuth compels with the right thumb rule.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Min laser beam to surface angle"
+                            command="SetMinBeamSurfaceAngle"
+                            number_of_elements="1"
+                            default_values="10."
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum angle in degrees between the laser beam and the surface on which
+          a point is laying to consider it as a potential keypoint.
+          In other words, all points laying on too oblique surfaces
+          relatively to the sensor are automatically rejected.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Plane threshold angle"
+                            command="SetPlaneAngleThreshold"
+                            number_of_elements="1"
+                            default_values="150."
+                            panel_visibility="advanced">
+        <Documentation>
+          Threshold upon angle in degrees between left and right lines to consider a point as plane.
+          It is used with its absolute sine value in SSKE for planes,
+          with its cosine value in DSSKE for planes and
+          with its opposite cosine value in DSSKE to filter too sharp edges.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Edge threshold angle"
+                            command="SetEdgeAngleThreshold"
+                            number_of_elements="1"
+                            default_values="120."
+                            panel_visibility="advanced">
+        <Documentation>
+          Threshold upon angle in degrees between left and right lines to consider a point as edge.
+          Used with its absolute sine value in SSKE for edges and
+          with its cosine value in DSSKE for edges.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Edge min depth gap"
+                            command="SetEdgeDepthGapThreshold"
+                            number_of_elements="1"
+                            default_values="1."
+                            panel_visibility="advanced">
+        <Documentation>
+          One strategy to consider a point as an edge keypoint is to compute
+          the gap between the point and its azimuthal neighbors. If the
+          gap is big enough on at least one side, we consider the point as an
+          edge keypoint.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Edge min nb of missing points"
+                            command="SetEdgeNbGapPoints"
+                            number_of_elements="1"
+                            default_values="10"
+                            panel_visibility="advanced">
+        <Documentation>
+          One strategy to consider a point as an edge keypoint is to compute
+          the number of points that were missed because of no return (e.g. some window)
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Edge min intensity gap"
+                            command="SetEdgeIntensityGapThreshold"
+                            number_of_elements="1"
+                            default_values="50."
+                            panel_visibility="advanced">
+        <Documentation>
+          One strategy to consider a point as an intensity edge keypoint is to compute
+          the intensity gap between the point and its left and right neighbors.
+          If the gap is big enough, we consider the point as an intensity edge keypoint.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Maximum keypoints number"
+                         command="SetMaxPoints"
+                         number_of_elements="1"
+                         default_values="1000"
+                         panel_visibility="advanced">
+        <Documentation>
+          Maximum number of keypoints of each type to extract. A voxel grid is used to downsample the keypoints cloud.
+          Points in voxels are sorted following their certainty value. The most certain points are extracted in each voxel
+          until reaching this threshold number.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Voxel grid resolution"
+                            command="SetVoxelResolution"
+                            number_of_elements="1"
+                            default_values="1."
+                            panel_visibility="advanced">
+        <Documentation>
+          Resolution of the voxel grid used to downsample the keypoints cloud in meters.
+          Points in voxels are sorted following their certainty value.
+          The most certain points are extracted in each voxel until reaching the "maximum keypoints" number threshold.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Ratio of points"
+                            command="SetInputSamplingRatio"
+                            number_of_elements="1"
+                            default_values="1."
+                            panel_visibility="advanced">
+        <Documentation>
+          Ratio to randomly downsample the input frame to extract keypoints [0, 1]. This can be used to solve computation time issues.
+        </Documentation>
+      </DoubleVectorProperty>
+    </Proxy>
+  </ProxyGroup>
+  <!-- End KeyPointsExtractors -->
+
+</ServerManagerConfiguration>

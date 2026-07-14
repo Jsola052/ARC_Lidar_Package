@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>slam_visualization</name>
+  <version>3.1.0</version>
+  <description>RViz2 panel plugin to send commands to lidar_slam_node and display confidence estimators</description>
+
+  <maintainer email="arthur.bourbousson@kitware.com">Arthur Bourbousson</maintainer>
+  <author email="hla@lescompanions.com">Hugo Laloge</author>
+
+  <license>Apache License Version 2.0</license>
+
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- depend of Qt5 -->
+  <build_depend>qtbase5-dev</build_depend>
+  <build_depend>rviz_ogre_vendor</build_depend>
+  <build_depend>message_generation</build_depend>
+
+
+  <depend>rclcpp</depend>
+  <depend>rviz_common</depend>
+  <depend>rviz_rendering</depend>
+  <depend>rviz_default_plugins</depend>
+  <depend>lidar_slam</depend>
+
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>.
+  <exec_depend>libqt5-core</exec_depend>
+  <exec_depend>libqt5-gui</exec_depend>
+  <exec_depend>libqt5-opengl</exec_depend>
+  <exec_depend>libqt5-widgets</exec_depend>
+  <exec_depend>rviz_ogre_vendor</exec_depend>
+
+  <!-- The export tag contains other, unspecified, tags -->
+  <export>
+      <rviz plugin="${prefix}/rviz_plugin.xml"/>
+      <build_type>ament_cmake</build_type>
+  </export>
+</package>

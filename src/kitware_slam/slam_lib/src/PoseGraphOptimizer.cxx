@@ -1,0 +1,464 @@
+//==============================================================================
+// Copyright 2019-2020 Kitware, Inc., Kitware SAS
+// Author: Sanchez Julia (Kitware SAS)
+// Creation date: 2021-10-08
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//==============================================================================
+
+#include "LidarSlam/Utilities.h"
+#include "LidarSlam/PoseGraphOptimizer.h"
+
+#include <g2o/core/block_solver.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
+#include <g2o/solvers/eigen/linear_solver_eigen.h>
+#include <g2o/types/slam3d/types_slam3d.h>
+#include <g2o/types/slam3d_addons/edge_se3_euler.h>
+#include "g2o/core/robust_kernel.h"
+#include "g2o/core/robust_kernel_impl.h"
+
+namespace LidarSlam
+{
+//------------------------------------------------------------------------------
+PoseGraphOptimizer::PoseGraphOptimizer()
+{
+  // Create optimizer
+  auto linearSolver = std::make_unique<g2o::LinearSolverEigen<g2o::BlockSolver_6_3::PoseMatrixType>>();
+  auto* solver = new g2o::OptimizationAlgorithmLevenberg(std::make_unique<g2o::BlockSolver_6_3>(std::move(linearSolver)));
+  this->Optimizer.setAlgorithm(solver);
+  this->Optimizer.setVerbose(this->Verbose);
+}
+
+//------------------------------------------------------------------------------
+void PoseGraphOptimizer::ResetGraph()
+{
+  this->Optimizer.clear();
+  this->LMIndicesLinking.clear();
+  this->ExtIdx = INT_MAX;
+}
+
+//------------------------------------------------------------------------------
+bool PoseGraphOptimizer::AddExternalSensor(const Eigen::Isometry3d& baseToSensorOffset, ExternalSensor sensor)
+{
+  // Check if the offset has never been set
+  if (this->Optimizer.parameter(int(sensor)))
+  {
+    PRINT_WARNING("Sensor calibration could not be set : index already exists");
+    return false;
+  }
+
+  // Add base/sensor offset parameter
+  auto* baseToSensorSE3Offset = new g2o::ParameterSE3Offset;
+  baseToSensorSE3Offset->setId(int(sensor));
+  baseToSensorSE3Offset->setOffset(baseToSensorOffset);
+  this->Optimizer.addParameter(baseToSensorSE3Offset);
+  PRINT_INFO("Calib set for " << ExternalSensorNames.at(sensor) << " :\n" << baseToSensorOffset.matrix())
+  return true;
+}
+
+//------------------------------------------------------------------------------
+void PoseGraphOptimizer::AddLandmark(const Eigen::Isometry3d& lm, unsigned int index, bool onlyPosition)
+{
+  // If this landmark was already added to the process, return
+  if (this->LMIndicesLinking.count(index))
+    return;
+  // Add landmark as a new vertex
+  // Choose index of the new landmark -> output index in decreasing order since INT_MAX
+  // so the input index does not overwrite a pose vertex index
+  // and pose vertices are in correct order
+  int idx = --this->ExtIdx;
+  this->LMIndicesLinking[index] = idx;
+  if (onlyPosition)
+  {
+    auto* landmarkVertex = new g2o::VertexPointXYZ;
+    // Use reverse Id (from INT_MAX) to let pose indices in arrival order
+    landmarkVertex->setId(idx);
+    landmarkVertex->setEstimate(lm.translation());
+    landmarkVertex->setFixed(true);
+    this->Optimizer.addVertex(landmarkVertex);
+  }
+  else
+  {
+    auto* landmarkVertex = new g2o::VertexSE3;
+    // Use reverse Id (from INT_MAX) to let pose indices in arrival order
+    landmarkVertex->setId(idx);
+    landmarkVertex->setEstimate(lm);
+    landmarkVertex->setFixed(true);
+    this->Optimizer.addVertex(landmarkVertex);
+  }
+}
+
+//------------------------------------------------------------------------------
+void PoseGraphOptimizer::AddLidarStates(const std::list<LidarState>& states)
+{
+  if (states.empty())
+    return;
+
+  // Initialize local values
+  int prevIdx = 0;
+  Eigen::Isometry3d prevState = Eigen::Isometry3d::Identity();
+  double prevStateTime = 0.;
+  int nStates = 0;
+  // Loop over all states
+  for (const auto& state : states)
+  {
+    // Add new state as a new vertex
+    auto* newVertex = new g2o::VertexSE3;
+    newVertex->setId(state.Index);
+    newVertex->setEstimate(state.Isometry);
+    bool fixedVertex = (this->FixFirst && state.Index == states.front().Index) ||
+                       (this->FixLast  && state.Index == states.back().Index);
+
+    newVertex->setFixed(fixedVertex);
+    this->Optimizer.addVertex(newVertex);
+    ++nStates;
+
+    // If first pose, no relative constraint is added
+    // Just update the local values
+    if (state.Index == states.front().Index)
+    {
+      prevIdx   = state.Index;
+      prevState = state.Isometry;
+      prevStateTime = state.Time;
+      continue;
+    }
+    double distance = (state.Isometry.translation() - prevState.translation()).norm();
+    // If there is a time gap or a too large distance gap, do not add an edge
+    if (std::abs(state.Time - prevStateTime) > 2. || distance > 4.)
+    {
+      // Update local values
+      prevIdx = state.Index;
+      prevState = state.Isometry;
+      prevStateTime = state.Time;
+      continue;
+    }
+
+    // Add an edge with the relative transform
+    // Information is given with Euler angle (order R = Rz * Ry * Rx)
+    // G2o only proposes this Euler format
+    auto* newEdge = new g2o::EdgeSE3Euler;
+    // Set vertices
+    newEdge->setVertex(0, this->Optimizer.vertex(prevIdx));
+    newEdge->setVertex(1, this->Optimizer.vertex(state.Index));
+    // Get inverse of last frame
+    Eigen::Isometry3d lastFrameInv = prevState.inverse();
+    // Compute relative transform with new frame
+    Eigen::Isometry3d Trelative = lastFrameInv * state.Isometry;
+    // Rotate covariance
+    // Lidar Slam gives the covariance expressed in the map frame
+    // We want the covariance expressed in the last frame to be consistent with supplied relative transform
+    Eigen::Vector6d xyzrpy = Utils::IsometryToXYZRPY(state.Isometry);
+    Eigen::Matrix6d covariance = CeresTools::RotateCovariance(xyzrpy, state.Covariance, lastFrameInv, true); // new = prevState^-1 * init
+    // Use g2o read function to transform Euler covariance into quaternion covariance
+    // This function takes an istream as input
+    // It needs the measurement vector as 6D euler pose in addition to the covariance
+    // Luckily, g2o uses the same convention as SLAM lib (RPY)
+    std::stringstream measureInfo;
+    Eigen::Vector6d poseRelative = Utils::IsometryToXYZRPY(Trelative);
+    measureInfo << poseRelative(0) << " " << poseRelative(1) << " " << poseRelative(2) << " "
+                << poseRelative(3) << " " << poseRelative(4) << " " << poseRelative(5) << " ";
+
+    Eigen::Matrix6d information = covariance.inverse();
+    for (int i = 0; i < 6; ++i)
+    {
+      for (int j = i; j < 6; ++j)
+        measureInfo << information(i, j) << " ";
+    }
+    newEdge->read(measureInfo);
+    // Add robustifier
+    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+    newEdge->setRobustKernel(rk);
+    newEdge->robustKernel()->setDelta(this->SaturationDistance);
+    // Add edge
+    this->Optimizer.addEdge(newEdge);
+    // Update local values
+    prevIdx = state.Index;
+    prevState = state.Isometry;
+    prevStateTime = state.Time;
+  }
+  if (this->Verbose)
+    PRINT_INFO(nStates << " lidar states added to the graph");
+}
+
+//------------------------------------------------------------------------------
+void PoseGraphOptimizer::AddLoopClosureConstraint(const unsigned int queryFrameIdx, const unsigned int revisitedFrameIdx,
+                                                  const Eigen::Isometry3d& loopClosureTransform,
+                                                  const Eigen::Matrix6d& loopClosureCovariance)
+{
+  // Add a new edge between the revisited frame and the query frame with the relative transform
+  auto* newEdge = new g2o::EdgeSE3Euler;
+  newEdge->setVertex(0, this->Optimizer.vertex(revisitedFrameIdx));
+  newEdge->setVertex(1, this->Optimizer.vertex(queryFrameIdx));
+
+  std::stringstream measureInfo;
+  Eigen::Vector6d poseRelative = Utils::IsometryToXYZRPY(loopClosureTransform);
+  measureInfo << poseRelative(0) << " " << poseRelative(1) << " " << poseRelative(2) << " "
+              << poseRelative(3) << " " << poseRelative(4) << " " << poseRelative(5) << " ";
+
+  Eigen::Matrix6d information = loopClosureCovariance.inverse();
+  for (int i = 0; i < 6; ++i)
+  {
+    for (int j = i; j < 6; ++j)
+      measureInfo << information(i, j) << " ";
+  }
+  newEdge->read(measureInfo);
+  // Add robustifier
+  g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+  newEdge->setRobustKernel(rk);
+  newEdge->robustKernel()->setDelta(this->SaturationDistance);
+  // Add edge
+  if (!this->Optimizer.addEdge(newEdge))
+    PRINT_ERROR("Loop closure constraint could not be added to the graph");
+  if (this->Verbose)
+    PRINT_INFO("Add Loop closure constraint between state #" << revisitedFrameIdx
+               << " and state #" << queryFrameIdx);
+}
+
+//------------------------------------------------------------------------------
+void PoseGraphOptimizer::AddLandmarkConstraint(int lidarIdx, int lmIdx, const ExternalSensors::LandmarkMeasurement& lm, bool onlyPosition)
+{
+  // Add an edge between a SLAM pose vertex and a landmark vertex
+  if (onlyPosition)
+  {
+    auto* externalEdge = new g2o::EdgeSE3PointXYZ;
+    externalEdge->setVertex(0, this->Optimizer.vertex(lidarIdx));
+    externalEdge->setVertex(1, this->Optimizer.vertex(this->LMIndicesLinking[lmIdx]));
+
+    externalEdge->setMeasurement(lm.TransfoRelative.translation());
+    externalEdge->setInformation(lm.Covariance.block(0, 0, 3, 3).inverse());
+    // Add robustifier
+    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+    externalEdge->setRobustKernel(rk);
+    externalEdge->robustKernel()->setDelta(this->SaturationDistance);
+    // Add offset transformation reference Id
+    if (!externalEdge->setParameterId(0, int(ExternalSensor::LANDMARK_DETECTOR)))
+      PRINT_ERROR("No calibration found for " << ExternalSensorNames.at(ExternalSensor::LANDMARK_DETECTOR))
+    // Add edge
+    if (!this->Optimizer.addEdge(externalEdge))
+      PRINT_ERROR("Tag constraint could not be added to the graph")
+  }
+  else
+  {
+    // It must be of Euler type to handle RPY/Euler conversions
+    auto* externalEdge = new g2o::EdgeSE3Euler;
+    externalEdge->setVertex(0, this->Optimizer.vertex(lidarIdx));
+    externalEdge->setVertex(1, this->Optimizer.vertex(this->LMIndicesLinking[lmIdx]));
+    // Use g2o read function to transform Euler covariance into quaternion covariance
+    // This function takes an istream as input
+    // It needs the measurement vector as 6D euler pose in addition to the covariance
+    // Luckily, g2o uses the same convention as SLAM lib (RPY)
+    std::stringstream measureInfo;
+    Eigen::Vector6d poseRelative = Utils::IsometryToXYZRPY(lm.TransfoRelative);
+    measureInfo << poseRelative(0) << poseRelative(1) << poseRelative(2)
+                << poseRelative(3) << poseRelative(4) << poseRelative(5);
+    Eigen::Matrix6d information = lm.Covariance.inverse();
+    for (int i = 0; i < 6; ++i)
+    {
+      for (int j = 0; j < 6; ++j)
+        measureInfo << information(i, j);
+    }
+    externalEdge->read(measureInfo);
+    // Add robustifier
+    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+    externalEdge->setRobustKernel(rk);
+    externalEdge->robustKernel()->setDelta(this->SaturationDistance);
+    // Add offset transformation reference Id
+    if (!externalEdge->setParameterId(0, int(ExternalSensor::LANDMARK_DETECTOR)))
+      PRINT_ERROR("No calibration found for " << ExternalSensorNames.at(ExternalSensor::LANDMARK_DETECTOR))
+    // Add edge
+    if (!this->Optimizer.addEdge(externalEdge))
+      PRINT_ERROR("Tag constraint could not be added to the graph")
+  }
+  if (this->Verbose)
+    PRINT_INFO("Add landmark constraint between state #" << lidarIdx <<" and tag #"<< lmIdx << " (i.e. vertex #" << this->LMIndicesLinking[lmIdx] << ")");
+}
+
+//------------------------------------------------------------------------------
+void PoseGraphOptimizer::AddGpsConstraint(int lidarIdx, const ExternalSensors::GpsMeasurement& gpsMeas)
+{
+  // Add a vertex with a GPS position
+  auto* newVertex = new g2o::VertexPointXYZ;
+  newVertex->setId(--this->ExtIdx);
+  newVertex->setEstimate(gpsMeas.Position);
+  newVertex->setFixed(true);
+  this->Optimizer.addVertex(newVertex);
+  // Add an edge between a SLAM pose vertex and the GPS vertex
+  auto* externalEdge = new g2o::EdgeSE3PointXYZ;
+  externalEdge->setVertex(0, this->Optimizer.vertex(lidarIdx));
+  externalEdge->setVertex(1, newVertex);
+  externalEdge->setMeasurement(Eigen::Vector3d::Zero()); // We want to merge this SLAM point to this GPS point.
+  externalEdge->setInformation(gpsMeas.Covariance.inverse());
+  // Add reference Id of calibration transform
+  if (!externalEdge->setParameterId(0, int(ExternalSensor::GPS)))
+    PRINT_ERROR("No calibration found for " << ExternalSensorNames.at(ExternalSensor::GPS))
+
+  // Add edge
+  if (!this->Optimizer.addEdge(externalEdge))
+    PRINT_ERROR("GPS constraint could not be added to the graph")
+
+  if (this->Verbose)
+    PRINT_INFO("Add GPS constraint for state #" << lidarIdx);
+}
+
+//------------------------------------------------------------------------------
+void PoseGraphOptimizer::AddManualPoseConstraint(int lidarIdx, const Eigen::Isometry3d& pose,
+                                                     const Eigen::Matrix6d& covariance, bool useFixedPose)
+{
+  // If fixed pose is disabled, add a manual position constraint on translation only (XYZ)
+  if (!useFixedPose)
+  {
+    auto* newVertex = new g2o::VertexPointXYZ;
+    newVertex->setId(--this->ExtIdx);
+    newVertex->setEstimate(pose.translation());
+    newVertex->setFixed(true);
+    this->Optimizer.addVertex(newVertex);
+
+    auto* externalEdge = new g2o::EdgeSE3PointXYZ;
+    externalEdge->setVertex(0, this->Optimizer.vertex(lidarIdx));
+    externalEdge->setVertex(1, newVertex);
+    externalEdge->setMeasurement(Eigen::Vector3d::Zero());
+    externalEdge->setInformation(covariance.topLeftCorner<3,3>().inverse());
+    // Robustifier
+    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+    externalEdge->setRobustKernel(rk);
+    externalEdge->robustKernel()->setDelta(this->SaturationDistance);
+    externalEdge->setParameterId(0, int(ExternalSensor::MANUAL_POSITION));
+
+    if (!this->Optimizer.addEdge(externalEdge))
+      PRINT_ERROR("Manual position constraint could not be added to the graph")
+    if (this->Verbose)
+      PRINT_INFO("Add manual position constraint for state #" << lidarIdx);
+    return;
+  }
+
+   ExternalSensors::PoseMeasurement poseMesurement;
+   poseMesurement.Pose = pose;
+   poseMesurement.Covariance = covariance;
+   this->AddExtPoseConstraint(lidarIdx, poseMesurement);
+}
+
+//------------------------------------------------------------------------------
+void PoseGraphOptimizer::AddExtPoseConstraint(int lidarIdx, const ExternalSensors::PoseMeasurement& poseMeas)
+{
+  // Add new vertex corresponding to current
+  // state interpolating the poses
+  auto* newVertex = new g2o::VertexSE3;
+  int idx = --this->ExtIdx;
+  this->ExtPoseIndicesLinking[lidarIdx] = idx;
+  newVertex->setId(idx);
+  newVertex->setEstimate(poseMeas.Pose);
+  newVertex->setFixed(true);
+  this->Optimizer.addVertex(newVertex);
+
+  auto* externalEdge = new g2o::EdgeSE3Euler;
+  // Set vertices
+  auto* slamVertex = this->Optimizer.vertex(lidarIdx);
+  double slamPose [7];
+  slamVertex->getEstimateData(slamPose);
+  Eigen::Isometry3d slamTransform = Utils::XYZQuatToIsometry(slamPose[0], slamPose[1], slamPose[2],
+                                                             slamPose[3], slamPose[4], slamPose[5],
+                                                             slamPose[6]);
+  externalEdge->setVertex(0, slamVertex);
+  externalEdge->setVertex(1, newVertex);
+  // Rotate covariance
+  // Get inverse of last frame
+  Eigen::Isometry3d slamTransformInv = slamTransform.inverse();
+  // Lidar Slam gives the covariance expressed in the map frame
+  // We want the covariance expressed in the last frame to be consistent with supplied relative transform
+  Eigen::Vector6d xyzrpy = Utils::IsometryToXYZRPY(poseMeas.Pose);
+  Eigen::Matrix6d covariance = CeresTools::RotateCovariance(xyzrpy, poseMeas.Covariance, slamTransformInv, true); // new = slam^-1 * init
+  // Add measurement to edge
+  // Use g2o read function to transform Euler covariance into quaternion covariance
+  // This function takes an istream as input
+  // It needs the measurement vector as 6D euler pose in addition to the covariance
+  // Luckily, g2o uses the same convention as SLAM lib (RPY)
+  // Here we force the poses to be the same: transform is identity
+  std::stringstream measureInfo;
+  measureInfo << 0 << " " << 0 << " " << 0 << " "
+              << 0 << " " << 0 << " " << 0 << " ";
+
+  Eigen::Matrix6d information = covariance.inverse();
+  for (int i = 0; i < 6; ++i)
+  {
+    for (int j = i; j < 6; ++j)
+      measureInfo << information(i, j) << " ";
+  }
+  externalEdge->read(measureInfo);
+
+  // Add robustifier to remove external poses outliers
+  g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+  externalEdge->setRobustKernel(rk);
+  externalEdge->robustKernel()->setDelta(this->SaturationDistance);
+
+  // Add edge
+  if (!this->Optimizer.addEdge(externalEdge))
+    PRINT_ERROR("External pose constraint could not be added to the graph");
+
+  if (this->Verbose)
+    PRINT_INFO("Add external pose constraint for state #" << lidarIdx);
+}
+
+//------------------------------------------------------------------------------
+bool PoseGraphOptimizer::Process(std::list<LidarState>& statesToOptimize)
+{
+  // Save Graph before optimization
+  if (this->SaveG2OFile)
+  {
+    if (!this->G2OFileName.empty())
+      this->Optimizer.save(this->G2OFileName.c_str());
+    else
+      PRINT_WARNING("Could not save the g2o graph. Please specify a filename.");
+  }
+
+  // Print debug info
+  if (this->Verbose)
+  {
+    PRINT_INFO("\nThe Graph is composed of:\n"
+               << "\t" << this->Optimizer.vertices().size() << " vertices\n"
+               << "\t" << this->Optimizer.edges().size()    << " edges\n");
+  }
+
+  // Optimize the graph
+  if (!this->Optimizer.initializeOptimization())
+  {
+    PRINT_ERROR("Pose graph initialization failed !");
+    return false;
+  }
+
+  int iterations = this->Optimizer.optimize(this->NbIteration);
+
+  // Print debug info if needed
+  PRINT_INFO("Pose graph optimization succeeded in " << iterations << " iterations.\n");
+
+  // Set the output optimized data
+  for (auto& state : statesToOptimize)
+  {
+    // Get optimized SLAM vertex pose
+    auto* v = this->Optimizer.vertex(state.Index);
+    g2o::VertexSE3* vSE3 = dynamic_cast<g2o::VertexSE3*>(v);
+    if (!vSE3)
+    {
+      PRINT_ERROR("Error: could not cast the vertex")
+      continue;
+    }
+    // Fill new optimized trajectory
+    // The new covariances can not be reached -> uncertainty() getter was removed from g2o
+    // see https://answers.ros.org/question/39175/retrieving-the-uncertainty-of-a-vertex-in-g2o/ for more details
+    // one will not be able to optimize again the poses outside this library.
+    state.Isometry = vSE3->estimate();
+  }
+
+  return true;
+}
+
+} // end of LidarSlam namespace

@@ -1,0 +1,203 @@
+<ServerManagerConfiguration>
+  <ProxyGroup name="filters">
+    <SourceProxy name="KeypointMapBuilder" class="vtkKeypointMapBuilder">
+      <Documentation
+        short_help="Build a keypoint map as the slam would do.">
+      </Documentation>
+
+      <InputProperty name="PointCloud"
+                     port_index="0"
+                     command="SetInputConnection">
+        <ProxyGroupDomain name="groups">
+          <Group name="sources"/>
+          <Group name="filters"/>
+        </ProxyGroupDomain>
+        <DataTypeDomain name="input_type">
+          <DataType value="vtkDataObject"/>
+        </DataTypeDomain>
+        <Documentation>
+          Set the input poly data.
+        </Documentation>
+      </InputProperty>
+
+      <InputProperty name="Trajectory"
+                     port_index="1"
+                     command="SetInputConnection">
+        <ProxyGroupDomain name="groups">
+          <Group name="sources"/>
+          <Group name="filters"/>
+        </ProxyGroupDomain>
+        <DataTypeDomain name="input_type">
+          <DataType value="vtkPolyData"/>
+        </DataTypeDomain>
+        <Documentation>
+          Set the input trajectory.
+        </Documentation>
+    </InputProperty>
+
+    <StringVectorProperty name="TimeArray"
+                          command="SetInputArrayToProcess"
+                          number_of_elements="5"
+                          element_types="0 0 0 0 2"
+                          default_values_delimiter=";"
+                          default_values="0;0;0;0;timestamp"
+                          panel_visibility="advanced">
+      <ArrayListDomain attribute_type="Scalars" name="array_list">
+        <RequiredProperties>
+          <Property function="Input" name="PointCloud" />
+        </RequiredProperties>
+      </ArrayListDomain>
+      <Documentation>
+        The points measurements timestamps.
+      </Documentation>
+    </StringVectorProperty>
+
+    <StringVectorProperty name="IntensityArray"
+                          command="SetInputArrayToProcess"
+                          number_of_elements="5"
+                          element_types="0 0 0 0 2"
+                          default_values_delimiter=";"
+                          default_values="1;0;0;0;intensity"
+                          panel_visibility="advanced">
+      <ArrayListDomain attribute_type="Scalars" name="array_list">
+        <RequiredProperties>
+          <Property function="Input" name="PointCloud" />
+        </RequiredProperties>
+      </ArrayListDomain>
+      <Documentation>
+        The points intensity/reflectivity measurements.
+      </Documentation>
+    </StringVectorProperty>
+
+    <StringVectorProperty name="LaserRingIdArray"
+                          command="SetInputArrayToProcess"
+                          number_of_elements="5"
+                          element_types="0 0 0 0 2"
+                          default_values_delimiter=";"
+                          default_values="2;0;0;0;laser_id"
+                          panel_visibility="advanced">
+      <ArrayListDomain attribute_type="Scalars" name="array_list">
+        <RequiredProperties>
+          <Property function="Input" name="PointCloud" />
+        </RequiredProperties>
+      </ArrayListDomain>
+      <Documentation>
+        The laser ring ids that acquired points.
+      </Documentation>
+    </StringVectorProperty>
+
+    <IntVectorProperty name="NumberOfThreads"
+                       command="SetNumberOfThreads"
+                       number_of_elements="1"
+                       default_values="8">
+      <IntRangeDomain name="range" min="1" max="16"/>
+      <Documentation>
+        Max number of threads to use for parallel processing.
+      </Documentation>
+    </IntVectorProperty>
+
+    <DoubleVectorProperty name="VoxelResolution"
+                          command="SetVoxelResolution"
+                          number_of_elements="1"
+                          default_values="10.0">
+      <Documentation>
+        Resolution of the rolling grid outer voxel in meter.
+      </Documentation>
+    </DoubleVectorProperty>
+
+    <DoubleVectorProperty name="LeafSize"
+                          command="SetDefaultLeafSize"
+                          number_of_elements="1"
+                          default_values="0.2">
+      <Documentation>
+        Size of the leaf used to downsample the point cloud with a VoxelGrid filter within each voxel. (in meter)
+      </Documentation>
+    </DoubleVectorProperty>
+
+    <DoubleVectorProperty name="TimeToSecondsFactor"
+                          command="SetTimeToSecondsFactor"
+                          number_of_elements="1"
+                          default_values="0.000001"
+                          panel_visibility="advanced">
+      <Documentation>
+        Coefficient to apply on TimeArray values to express time in seconds.
+      </Documentation>
+    </DoubleVectorProperty>
+
+
+    <IntVectorProperty name="DetectEdges"
+                       command="EnableEdges"
+                       number_of_elements="1"
+                       default_values="1" >
+      <BooleanDomain name="bool" />
+      <Documentation>
+        If enabled, edge keypoints map is added in output.
+      </Documentation>
+    </IntVectorProperty>
+
+    <IntVectorProperty name="DetectIntensityEdges"
+                       command="EnableIntensityEdges"
+                       number_of_elements="1"
+                       default_values="1" >
+      <BooleanDomain name="bool" />
+      <Documentation>
+        If enabled, intensity edge keypoints map is added in output.
+      </Documentation>
+    </IntVectorProperty>
+
+    <IntVectorProperty name="DetectPlanes"
+                       command="EnablePlanes"
+                       number_of_elements="1"
+                       default_values="1" >
+      <BooleanDomain name="bool" />
+      <Documentation>
+        If enabled, plane keypoints map is added in output.
+      </Documentation>
+    </IntVectorProperty>
+
+    <IntVectorProperty name="DetectBlobs"
+                       command="EnableBlobs"
+                       number_of_elements="1"
+                       default_values="0" >
+      <BooleanDomain name="bool" />
+      <Documentation>
+        If enabled, blob keypoints map is added in output.
+      </Documentation>
+    </IntVectorProperty>
+
+    <Property name="Reset state"
+              command="Reset">
+      <Documentation>
+        Reset keypoint map builder internal state: maps are cleared.
+      </Documentation>
+    </Property>
+
+    <SubProxy command="SetKeyPointsExtractor" label="Keypoints extractor">
+      <Proxy name="KeyPointsExtractor"
+             proxygroup="KeyPointsExtractors"
+             proxyname="SpinningSensorKeypointExtractor" />
+      <ExposedProperties>
+        <PropertyGroup label="Spinning Sensor Keypoints Extractor parameters">
+          <Property name="Mode" />
+          <Property name="Min neighbors nb" panel_visibility="advanced" />
+          <Property name="Min neighborhood radius" panel_visibility="advanced" />
+          <Property name="Min distance to sensor" panel_visibility="advanced" />
+          <Property name="Max distance to sensor" panel_visibility="advanced" />
+          <Property name="Min azimuth angle" panel_visibility="advanced" />
+          <Property name="Max azimuth angle" panel_visibility="advanced" />
+          <Property name="Min laser beam to surface angle" panel_visibility="advanced" />
+          <Property name="Plane threshold angle" panel_visibility="advanced" />
+          <Property name="Edge threshold angle" panel_visibility="advanced" />
+          <Property name="Edge min depth gap" panel_visibility="advanced" />
+          <Property name="Edge min nb of missing points" panel_visibility="advanced" />
+          <Property name="Edge min intensity gap" panel_visibility="advanced" />
+          <Property name="Maximum keypoints number" panel_visibility="advanced" />
+          <Property name="Voxel grid resolution" panel_visibility="advanced" />
+          <Property name="Ratio of points" panel_visibility="advanced" />
+        </PropertyGroup>
+      </ExposedProperties>
+    </SubProxy>
+
+   </SourceProxy>
+  </ProxyGroup>
+</ServerManagerConfiguration>

@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>lidar_slam</name>
+  <version>3.1.0</version>
+  <description>ROS wrapping of Kitware LiDAR SLAM algorithm.</description>
+
+  <!-- One maintainer tag required, multiple allowed, one person per tag -->
+  <maintainer email="arthur.bourbousson@kitware.com">Arthur Bourbousson</maintainer>
+
+  <!-- One license tag required, multiple allowed, one license per tag -->
+  <!-- Commonly used license strings: -->
+  <!--   BSD, MIT, Boost Software License, GPLv2, GPLv3, LGPLv2.1, LGPLv3 -->
+  <license>Apache License Version 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <build_depend>rosidl_default_generators</build_depend>
+
+  <depend>rclcpp</depend>
+  <depend>tf2_ros</depend>
+  <depend>pcl_conversions</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>apriltag_ros</depend>
+  <depend>cv_bridge</depend>
+  <depend>visualization_msgs</depend>
+
+  <exec_depend>libpcl-common</exec_depend>
+  <exec_depend>libpcl-io</exec_depend>
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>lidar_conversions</exec_depend>
+  <exec_depend>gps_conversions</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <!-- to exec package with a launchfile -->
+  <exec_depend>ros2launch</exec_depend>
+  <!-- to create interfaces at runtime -->
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <!-- package of rosidl to create interfaces-->
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <!-- The export tag contains other, unspecified, tags -->
+  <export>
+    <!-- Other tools can request additional information be placed here -->
+    <build_type>ament_cmake</build_type>
+  </export>
+
+</package>

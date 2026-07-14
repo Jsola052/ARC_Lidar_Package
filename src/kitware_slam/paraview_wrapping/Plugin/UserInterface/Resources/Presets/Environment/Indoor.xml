@@ -1,0 +1,89 @@
+<SlamPresets name="Indoor">
+  <Proxy group="filters" type="SlamOnline" id="202535" servers="1">
+    <Property name="Use edges" id="202535.Use edges" number_of_elements="1">
+      <Element index="0" value="1"/>
+      <Domain name="bool" id="202535.Use edges.bool"/>
+    </Property>
+    <Property name="Use intensity edges" id="202535.Use intensity edges" number_of_elements="1">
+      <Element index="0" value="1"/>
+      <Domain name="bool" id="202535.Use intensity edges.bool"/>
+    </Property>
+    <Property name="Use planes" id="202535.Use planes" number_of_elements="1">
+      <Element index="0" value="1"/>
+      <Domain name="bool" id="202535.Use planes.bool"/>
+    </Property>
+    <Property name="Min laser beam to surface angle" id="202535.Min laser beam to surface angle" number_of_elements="1">
+      <Element index="0" value="10"/>
+    </Property>
+    <Property name="Plane threshold angle" id="202535.Plane threshold angle" number_of_elements="1">
+      <Element index="0" value="150"/>
+    </Property>
+    <Property name="Edge threshold angle" id="202535.Edge threshold angle" number_of_elements="1">
+      <Element index="0" value="23"/>
+    </Property>
+    <Property name="Edge min depth gap" id="202535.Edge min depth gap" number_of_elements="1">
+      <Element index="0" value="1"/>
+    </Property>
+    <Property name="Edge min nb of missing points" id="202535.Edge min nb of missing points" number_of_elements="1">
+      <Element index="0" value="10"/>
+    </Property>
+    <Property name="Edge min intensity gap" id="202535.Edge min intensity gap" number_of_elements="1">
+      <Element index="0" value="30"/>
+    </Property>
+    <Property name="Maximum keypoints number" id="202535.Maximum keypoints number" number_of_elements="1">
+      <Element index="0" value="1000"/>
+    </Property>
+    <Property name="Max neighbors distance" id="202535.Max neighbors distance" number_of_elements="1">
+      <Element index="0" value="3"/>
+    </Property>
+    <Property name="Edge max model error" id="202535.Edge max model error" number_of_elements="1">
+      <Element index="0" value="0.1"/>
+    </Property>
+    <Property name="Plane max model error" id="202535.Plane max model error" number_of_elements="1">
+      <Element index="0" value="0.05"/>
+    </Property>
+    <Property name="Edge nb of neighbors" id="202535.Edge nb of neighbors" number_of_elements="1">
+      <Element index="0" value="9"/>
+    </Property>
+    <Property name="Edge nb min filtered neighbors" id="202535.Edge nb min filtered neighbors" number_of_elements="1">
+      <Element index="0" value="4"/>
+    </Property>
+    <Property name="Plane nb of neighbors" id="202535.Plane nb of neighbors" number_of_elements="1">
+      <Element index="0" value="7"/>
+    </Property>
+    <Property name="Planarity threshold" id="202535.Planarity threshold" number_of_elements="1">
+      <Element index="0" value="0.04"/>
+    </Property>
+    <Property name="Final saturation distance" id="202535.Final saturation distance" number_of_elements="1">
+      <Element index="0" value="0.3"/>
+    </Property>
+    <Property name="Submap extraction mode" id="202535.Submap extraction mode" number_of_elements="1">
+      <Element index="0" value="1"/>
+      <Domain name="enum" id="202535.Submap extraction mode.enum">
+        <Entry value="0" text="Bounding box"/>
+        <Entry value="1" text="profile"/>
+      </Domain>
+    </Property>
+    <Property name="Keyframe distance threshold" id="202535.Keyframe distance threshold" number_of_elements="1">
+      <Element index="0" value="0.1"/>
+    </Property>
+    <Property name="Keyframe angle threshold" id="202535.Keyframe angle threshold" number_of_elements="1">
+      <Element index="0" value="5"/>
+    </Property>
+    <Property name="Edges map resolution" id="202535.Edges map resolution" number_of_elements="1">
+      <Element index="0" value="0.1"/>
+    </Property>
+    <Property name="Planes map resolution" id="202535.Planes map resolution" number_of_elements="1">
+      <Element index="0" value="0.1"/>
+    </Property>
+    <Property name="Rolling grid dimension" id="202535.Rolling grid dimension" number_of_elements="1">
+      <Element index="0" value="100"/>
+    </Property>
+    <Property name="Rolling grid resolution" id="202535.Rolling grid resolution" number_of_elements="1">
+      <Element index="0" value="2"/>
+    </Property>
+    <Property name="Min number of frames per voxel" id="202535.Min number of frames per voxel" number_of_elements="1">
+      <Element index="0" value="0"/>
+    </Property>
+  </Proxy>
+</SlamPresets>

@@ -1,0 +1,505 @@
+# Default variables/parameters for all jobs
+variables:
+  data_folder: /root/data
+  cmake_option_GENERATOR: -GNinja
+  cmake_option_build_type: -DCMAKE_BUILD_TYPE=Release
+  cmake_option_shared: -DBUILD_SHARED_LIBS=ON
+  SB_deps_install_path: "${CI_PROJECT_DIR}/../${CI_PROJECT_NAME}_build/build_SB/install"
+  GIT_SUBMODULE_STRATEGY: recursive
+  GIT_SUBMODULE_DEPTH: 20
+  CI_ENV_IMAGE: $CI_REGISTRY/keu-computervision/slam/ci_ros2_env
+  ROS2_ENV_IMAGE: $CI_REGISTRY/keu-computervision/slam/ros2_env
+
+stages:
+  - superbuild
+  - slam_lib
+  - ros2_wrapping_build
+  - ros2_wrapping_package
+  - ros2_test
+  - paraview_wrapping
+
+# Windows specific configuration
+.windows_runner_config:
+  before_script:
+    # To use the Microsoft C++ Toolset from the command line, some environment variables need to be set.
+    # To help with this, Microsoft provides the vcvarsall.bat script that sets different environment vars.
+    # (see https://docs.microsoft.com/en-us/cpp/build/building-on-the-command-line?view=vs-2019)
+    # However, the script is made for the command shell and the job run in a powershell.
+    # A powershell can run a command shell script by using the `cmd` executable, but this implies
+    # that environment variables are only set in the child cmd.exe instance. The environment variables need to
+    # be updated in the powershell too. This is why the function Invoke-CmdScript is needed as it invokes
+    # the script and updates the powershell environment.
+    # This is taken from https://stackoverflow.com/a/41399983
+    - | # pipe allows to use multiline command, see https://gitlab.com/gitlab-org/gitlab-runner/issues/166
+      function Invoke-CmdScript {
+        param(
+          [String] $scriptName
+        )
+        $cmdLine = """$scriptName"" $args & set"
+        & $Env:SystemRoot\system32\cmd.exe /c $cmdLine |
+          Select-String '^([^=]*)=(.*)$' |
+          ForEach-Object {
+            $varName = $_.Matches[0].Groups[1].Value
+            $varValue = $_.Matches[0].Groups[2].Value
+            Set-Item Env:$varName $varValue
+        }
+      }
+    - Invoke-CmdScript "${vcvarsall_script_location}/vcvarsall.bat" $architecture
+  variables:
+    # Paraview only supports MSVC 2019 and Ninja generator for now
+    vcvarsall_script_location: 'C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Auxiliary/Build'
+    architecture: x86_amd64
+
+# ------------------------------------------------------------------------------
+#   Build superbuild
+# ------------------------------------------------------------------------------
+
+# Clean superbuild
+clean_superbuild:
+  stage: superbuild
+  tags: [superbuild]
+  needs: []
+  variables:
+    build_dir: "${CI_PROJECT_DIR}/../${CI_PROJECT_NAME}_build/build_SB"
+  rules:
+    # Can be launched only from the web interface
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+  script:
+    - cmake -E remove_directory $build_dir
+
+# Build superbuild
+.build_superbuild:
+  stage: superbuild
+  tags: [superbuild]
+  variables:
+    build_dir: "${CI_PROJECT_DIR}/../${CI_PROJECT_NAME}_build/build_SB"
+  rules:
+    # Can be launched only from the web interface
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+  script:
+    - cmake -E make_directory $build_dir
+    - cd $build_dir
+    - echo "cmake ${CI_PROJECT_DIR}/slam-superbuild
+      $cmake_option_GENERATOR
+      $cmake_option_build_type
+      -DCMAKE_INSTALL_PREFIX=$SB_deps_install_path
+      -DBUILD_SLAM_SHARED_LIBS=OFF"
+    - cmake "${CI_PROJECT_DIR}/slam-superbuild"
+      $cmake_option_GENERATOR
+      $cmake_option_build_type
+      -DCMAKE_INSTALL_PREFIX="$SB_deps_install_path"
+      -DBUILD_SLAM_SHARED_LIBS=OFF
+    - cmake --build . -j 4
+
+# Build superbuild on Windows
+# This job allows to store the dependencies
+# for next CI run on windows runners
+windows_build_superbuild:
+  tags: [windows]
+  extends:
+  - .windows_runner_config
+  - .build_superbuild
+
+# Build superbuild on Linux
+# This job allows to store the dependencies
+# for next CI run on linux runners
+linux_build_superbuild:
+  tags: [linux]
+  extends:
+    - .build_superbuild
+
+# ------------------------------------------------------------------------------
+#   Build core LidarSlam lib
+# ------------------------------------------------------------------------------
+
+.slam_lib:
+  stage: slam_lib
+  needs: []
+  tags: [superbuild]
+  variables:
+    build_dir: "${CI_PROJECT_DIR}/../${CI_PROJECT_NAME}_build/build_slam_lib"
+    slam_cmake_option_Eigen_INCLUDE_DIR: "-DEigen_INCLUDE_DIR=${SB_deps_install_path}/include"
+    slam_cmake_option_Eigen_DIR: "-DEigen3_DIR=${SB_deps_install_path}/share/eigen3/cmake"
+    slam_cmake_option_glog_DIR: "-Dglog_DIR=${SB_deps_install_path}/lib/cmake/glog"
+    slam_cmake_option_Ceres_DIR: "-DCeres_DIR=${SB_deps_install_path}/lib/cmake/Ceres"
+    slam_cmake_option_nanoflann_DIR: "-Dnanoflann_DIR=${SB_deps_install_path}/share/nanoflann/cmake"
+    slam_cmake_option_BOOST_DIR: "-DBOOST_DIR=${SB_deps_install_path}/lib/cmake/Boost-1.76.0"
+    slam_cmake_option_BOOST_ROOT: "-DBOOST_ROOT=${SB_deps_install_path}/"
+    slam_cmake_option_Boost_STATIC: "-DBoost_USE_STATIC_LIBS=OFF"
+    slam_cmake_option_g2o_DIR: "-Dg2o_DIR=${SB_deps_install_path}/lib/cmake/g2o"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: always
+  script:
+    - cmake -E remove_directory $build_dir
+    - cmake -E make_directory $build_dir
+    - cd $build_dir
+    - echo "cmake $CI_PROJECT_DIR
+      $cmake_option_GENERATOR
+      $cmake_option_build_type
+      $cmake_option_shared
+      $slam_cmake_option_Eigen_INCLUDE_DIR
+      $slam_cmake_option_Eigen_DIR
+      $slam_cmake_option_glog_DIR
+      $slam_cmake_option_Ceres_DIR
+      $slam_cmake_option_nanoflann_DIR
+      $slam_cmake_option_BOOST_DIR
+      $slam_cmake_option_BOOST_ROOT
+      $slam_cmake_option_Boost_INCLUDE_DIR
+      $slam_cmake_option_Boost_STATIC
+      $slam_cmake_option_PCL_DIR
+      $slam_cmake_option_g2o_DIR"
+    - cmake $CI_PROJECT_DIR
+      $cmake_option_GENERATOR
+      $cmake_option_build_type
+      $cmake_option_shared
+      $slam_cmake_option_Eigen_INCLUDE_DIR
+      $slam_cmake_option_Eigen_DIR
+      $slam_cmake_option_glog_DIR
+      $slam_cmake_option_Ceres_DIR
+      $slam_cmake_option_nanoflann_DIR
+      $slam_cmake_option_BOOST_DIR
+      $slam_cmake_option_BOOST_ROOT
+      $slam_cmake_option_Boost_INCLUDE_DIR
+      $slam_cmake_option_Boost_STATIC
+      $slam_cmake_option_PCL_DIR
+      $slam_cmake_option_g2o_DIR
+    - cmake --build $build_dir -j 4
+
+# Build core LidarSlam lib on Linux
+linux_slam_lib:
+  tags: [linux, superbuild]
+  extends:
+    - .slam_lib
+  variables:
+    slam_cmake_option_PCL_DIR: "-DPCL_DIR=${SB_deps_install_path}/share/pcl-1.13"
+    slam_cmake_option_Boost_INCLUDE_DIR: "-DBoost_INCLUDE_DIR=${SB_deps_install_path}/include"
+
+# Build core LidarSlam lib on Windows
+windows_slam_lib:
+  tags: [windows]
+  extends:
+  - .windows_runner_config
+  - .slam_lib
+  variables:
+    slam_cmake_option_PCL_DIR: "-DPCL_DIR=${SB_deps_install_path}/cmake"
+    slam_cmake_option_Boost_INCLUDE_DIR: "-DBoost_INCLUDE_DIR=${SB_deps_install_path}/include/boost-1_76"
+
+# ------------------------------------------------------------------------------
+#   Build PV wrapping
+# ------------------------------------------------------------------------------
+
+# Note : Paraview, qt, zlib, png and python deps
+# should be configured in runners' toml files.
+windows_paraview_wrapping:
+  tags: [windows, paraview]
+  extends:
+    - .windows_runner_config
+  stage: paraview_wrapping
+  needs: []
+  variables:
+    build_dir: "${CI_PROJECT_DIR}/../${CI_PROJECT_NAME}_build/build_paraview_wrapping"
+    slam_cmake_option_Boost_STATIC: "-DBoost_USE_STATIC_LIBS=OFF"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: always
+  script:
+    - cmake -E remove_directory $build_dir
+    - cmake -E make_directory $build_dir
+    - cd $build_dir
+    - echo "cmake $CI_PROJECT_DIR
+      $cmake_option_GENERATOR
+      $cmake_option_build_type
+      $cmake_option_shared
+      -DSLAM_PARAVIEW_PLUGIN=ON
+      $slam_cmake_option_Eigen_INCLUDE_DIR
+      $slam_cmake_option_Eigen_DIR
+      $slam_cmake_option_glog_DIR
+      $slam_cmake_option_Ceres_DIR
+      $slam_cmake_option_nanoflann_DIR
+      $slam_cmake_option_BOOST_ROOT
+      $slam_cmake_option_Boost_DIR
+      $slam_cmake_option_Boost_STATIC
+      $slam_cmake_option_PCL_DIR
+      $slam_cmake_option_g2o_DIR
+      $slam_cmake_option_ParaView_DIR
+      $slam_cmake_option_Qt5_DIR
+      $slam_cmake_option_ZLIB_LIB
+      $slam_cmake_option_ZLIB_INC
+      $slam_cmake_option_PNG_LIB
+      $slam_cmake_option_PNG_PNG_INC
+      $slam_cmake_option_PYTHON"
+    - cmake $CI_PROJECT_DIR
+      $cmake_option_GENERATOR
+      $cmake_option_build_type
+      $cmake_option_shared
+      -DSLAM_PARAVIEW_PLUGIN=ON
+      $slam_cmake_option_Eigen_INCLUDE_DIR
+      $slam_cmake_option_Eigen_DIR
+      $slam_cmake_option_glog_DIR
+      $slam_cmake_option_Ceres_DIR
+      $slam_cmake_option_nanoflann_DIR
+      $slam_cmake_option_BOOST_ROOT
+      $slam_cmake_option_Boost_DIR
+      $slam_cmake_option_Boost_STATIC
+      $slam_cmake_option_PCL_DIR
+      $slam_cmake_option_g2o_DIR
+      $slam_cmake_option_ParaView_DIR
+      $slam_cmake_option_Qt5_DIR
+      $slam_cmake_option_ZLIB_LIB
+      $slam_cmake_option_ZLIB_INC
+      $slam_cmake_option_PNG_LIB
+      $slam_cmake_option_PNG_PNG_INC
+      $slam_cmake_option_PYTHON
+    - cmake --build $build_dir -j 4
+
+# Build PV wrapping on Linux
+linux_paraview_wrapping:
+  tags: [linux, docker]
+  stage: paraview_wrapping
+  needs: []
+  image: gitlab.kitware.com:4567/lidarview/lidarview:ci-ubuntu22-20240129
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: always
+  script:
+    - mkdir $CI_PROJECT_DIR/build
+    - cmake -S $CI_PROJECT_DIR -B $CI_PROJECT_DIR/build -GNinja -DSLAM_PARAVIEW_PLUGIN=ON
+    - cmake --build $CI_PROJECT_DIR/build -j 4
+
+# ------------------------------------------------------------------------------
+#   Build ROS2 wrapping (on docker)
+# ------------------------------------------------------------------------------
+
+# Build ROS2 wrapping on linux
+linux_ros2_wrapping_build:
+  tags: [linux, ros]
+  stage: ros2_wrapping_build
+  needs: []
+  image: $CI_ENV_IMAGE
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: always
+  artifacts:
+      paths:
+        - ros2_ws/install
+      expire_in: "30 days"
+  script:
+    # Create a hidden ros2 workspace folder beside sources
+    # This is used to move all files from the current directory
+    - cmake -E make_directory .ros2_ws/src/slam
+    # Move sources to workspace
+    - mv * .ros2_ws/src/slam
+    # Convert to not hidden folder to be able to cache it for next jobs
+    - mv .ros2_ws ros2_ws
+    # Build/Install
+    - cd ros2_ws
+    - colcon build --base-paths src/slam/ros2_wrapping --cmake-args ${cmake_option_build_type}
+
+# Create new docker image packaging the SLAM
+# WARNING : nobody external to Kitware should be able to modify this job
+# See documentation: https://archives.docs.gitlab.com/16.11/ee/ci/docker/using_docker_build.html#docker-in-docker-with-tls-enabled-in-the-docker-executor
+# TLS communication is setup automatically by gitlab between the host and the dind service
+# The runner needs to have a volume to share the certificates
+# The job just needs docker installed in the container
+create_docker_image:
+  tags: [docker, privileged]
+  stage: ros2_wrapping_package
+  services:
+  - name: docker:24.0.5-dind
+  variables:
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_CERT_PATH: "/certs/client"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+  needs:
+    - job: linux_ros2_wrapping_build
+      artifacts: true
+  dependencies: [linux_ros2_wrapping_build]
+  artifacts:
+    paths:
+      - slam_image.tar
+    expire_in: "30 days"
+  script:
+    # stdin is used for security
+    # (see https://docs.gitlab.com/ee/user/packages/container_registry/authenticate_with_container_registry.html)
+    - echo "$CI_REGISTRY_PASSWORD" | docker login $CI_REGISTRY -u $CI_REGISTRY_USER --password-stdin
+    # Create a new Dockerfile with slam installation
+    - |
+      cat <<EOF > Dockerfile
+      FROM $ROS2_ENV_IMAGE
+      COPY ./ros2_ws/install /root/ros2_ws/install
+      RUN echo "source /root/ros2_ws/install/setup.bash" >> /root/.bashrc
+      WORKDIR /root/ros2_ws/install
+      EOF
+    # Build image
+    - docker build -t slam:$CI_COMMIT_SHA .
+    # Save the image and upload it as artifact
+    - docker save slam:$CI_COMMIT_SHA > slam_image.tar
+
+# ------------------------------------------------------------------------------
+#   Perform ROS tests (on docker)
+# ------------------------------------------------------------------------------
+
+# Create a reference for any test from master branch
+.ros2_make_reference:
+  stage: ros2_test
+  tags: [linux, ros]
+  needs:
+    - job: linux_ros2_wrapping_build
+      artifacts: true
+  dependencies: [linux_ros2_wrapping_build]
+  image: $CI_ENV_IMAGE
+  variables:
+    GIT_STRATEGY: none
+    PATH_REFERENCE_LOG: "test_log/${test_name}/reference"
+  artifacts:
+    paths:
+    - "ros2_ws/$PATH_REFERENCE_LOG"
+    expire_in: "30 days"
+  rules:
+    # Allow to manually create a reference for master from the web interface
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "master"
+      when: manual
+    - if: $CI_COMMIT_BRANCH == "master"
+      when: always
+  script:
+    - cd ros2_ws
+    - echo "Creating reference log files for $test_name for next lib improvements"
+    - cmake -E make_directory "$PATH_REFERENCE_LOG"
+    - source install/setup.bash
+
+    - ROS2_COMMAND="ros2 launch lidar_slam_test slam.launch.py
+      test_data:=${data_folder}/${test_name}
+      outdoor:=$outdoor
+      velodyne_driver:=$velodyne_driver
+      scan_frame:=$scan_frame
+      wait_init:=$wait_init
+      res_path:=${PWD}/${PATH_REFERENCE_LOG}
+      domain_id:=196"
+
+    - echo "$ROS2_COMMAND"
+    - eval $ROS2_COMMAND 2>&1 | tee /tmp/test_log.txt
+    # Checks whether the ROS2_COMMAND has worked properly
+    - test ${PIPESTATUS[0]} -eq 0
+    - grep "comparison ignored" /tmp/test_log.txt
+
+# Perform test
+.ros2_test:
+  stage: ros2_test
+  tags: [linux, ros]
+  needs:
+    - job: linux_ros2_wrapping_build
+      artifacts: true
+  dependencies: [linux_ros2_wrapping_build]
+  image: $CI_ENV_IMAGE
+  variables:
+    GIT_STRATEGY: none
+    PATH_REFERENCE_LOG: "test_log/${test_name}/reference"
+    PATH_RESULT_LOG: "test_log/${test_name}/result"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" &&
+          $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"
+      when: always
+  artifacts:
+    paths:
+    - "ros2_ws/test_log/${test_name}"
+    expire_in: "30 days"
+    when: always
+  script:
+    # Search the id of the latest pipeline from master
+    - PIPELINE_ID=$(curl --location "https://gitlab.kitware.com/api/v4/projects/4640/pipelines/latest?ref=master" |
+      jq -r ".id")
+    # Check that the variable is set
+    - ([[ -n "$PIPELINE_ID" ]])
+
+    # Search the id of the ref_name job in the latest pipeline from master
+    - JOB_ID=$(curl "https://gitlab.kitware.com/api/v4/projects/4640/pipelines/${PIPELINE_ID}/jobs" |
+      jq -r ".[] | select(.name == \"$ref_name\") | .id")
+    # Check that the variable is set
+    - ([[ -n "$JOB_ID" ]])
+
+    # Download the artifact for the searched job
+    - echo "Downloading artifact from the job ${JOB_ID} of the pipeline ${PIPELINE_ID}"
+    - curl "https://gitlab.kitware.com/api/v4/projects/4640/jobs/${JOB_ID}/artifacts" --output artifacts_reference.zip
+    - unzip artifacts_reference.zip
+
+    - cd ros2_ws
+
+    # Launch test
+    - cmake -E make_directory "$PATH_RESULT_LOG"
+    - source install/setup.bash
+
+    - ROS2_COMMAND="ros2 launch lidar_slam_test slam.launch.py
+      test_data:=${data_folder}/${test_name}
+      outdoor:=$outdoor
+      velodyne_driver:=$velodyne_driver
+      scan_frame:=$scan_frame
+      wait_init:=$wait_init
+      ref_path:=${PWD}/${PATH_REFERENCE_LOG}
+      res_path:=${PWD}/${PATH_RESULT_LOG}
+      domain_id:=$((JOB_ID % 100))"
+
+    - echo "$ROS2_COMMAND"
+    - eval $ROS2_COMMAND 2>&1 | tee /tmp/test_log.txt
+    # Checks whether the ROS2_COMMAND has worked properly
+    - test ${PIPESTATUS[0]} -eq 0
+    - grep "Test successfully passed" /tmp/test_log.txt
+
+# Create a reference for test1 from master branch
+ros2_make_reference1:
+  extends: .ros2_make_reference
+  variables:
+    test_name: "test1"
+    outdoor: "true"
+    velodyne_driver: "false"
+    scan_frame: "velodyne"
+    wait_init: "2" # To have time to init the process
+
+# Create a reference for test2 from master branch
+ros2_make_reference2:
+  extends: .ros2_make_reference
+  variables:
+    test_name: "test2"
+    outdoor: "false"
+    velodyne_driver: "true"
+    scan_frame: "scan_omni"
+    wait_init: "4" # To have time to init the process
+
+# Perform test 1
+ros2_test1:
+  extends: .ros2_test
+  variables:
+    test_name: "test1"
+    ref_name: "ros2_make_reference1" # job name to find the corresponding artifact
+    outdoor: "true"
+    velodyne_driver: "false"
+    scan_frame: "velodyne"
+    wait_init: "2" # To have time to load the reference files
+
+# Perform test 2
+ros2_test2:
+  extends: .ros2_test
+  variables:
+    test_name: "test2"
+    ref_name: "ros2_make_reference2" # job name to find the corresponding artifact
+    outdoor: "false"
+    velodyne_driver: "true"
+    scan_frame: "scan_omni"
+    wait_init: "4" # To have time to load the reference files

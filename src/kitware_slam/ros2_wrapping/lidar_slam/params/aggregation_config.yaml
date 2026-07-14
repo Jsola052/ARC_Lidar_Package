@@ -1,0 +1,40 @@
+########################################################
+# Parameters for points aggregation in mapping context #
+########################################################
+
+/aggregation:
+  ros__parameters:
+    nbthreads: 4   # Number of threads to use for the aggregation (only used for obstacles detection for now)
+    leaf_size: 0.1 # Voxel size (eq approx space between points after downsampling)
+    max_size: 500. # Maximum size of the scene (from the last lidar slam position)
+                   # Warning : should be at least as large as one frame
+    min_points_per_voxel: 2 # Minimum number of points in a voxel to extract it as non moving object
+    min_dist_around_trajectory: 1. # Minimum distance of the points from the sensor to aggregate them
+    max_dist_around_trajectory: -1. # Maximum distance of the points from the sensor to aggregate them
+
+    # Slice extraction parameters
+    slice:
+      enable: false        # Enable or disable the slice extraction and the area computation
+      traj_length: 1.      # [meters] Length of trajectory to consider to define the slice plane
+      width: 0.2           # [meters] Width of the pointcloud slice to take to create the slice projection
+      max_dist: 4.         # [meters] Maximal distance of the points from the trajectory position onto the slice plane
+      angle_resolution: 3. # [°] Resolution of the slice pointcloud w.r.t the trajectory position
+
+    # Parameters to extract a slice of points in the z axis
+    # To extract the ground, it should be on z axis of base_link,
+    # if not, base_link should be adapted in slam params or in TF tree
+    z_slice:
+      enable: false         # Enable or disable the horizontal slice extraction
+      height_position: -0.5 # [meters] Distance on z axis of the LiDAR frame
+      width: 0.2            # [meters] Width of the slice we want to extract. It will be centered at height.
+      invert: false         # Extract or reject the slice
+
+    obstacle:
+      enable: false     # Enable or disable the obstacle extraction
+      ref_map_path: ""  # Reference map to find new objects
+      decay_time: 1000. # [seconds] Maximum lifetime of an obstacle and/or a new point
+      merge_dist: 0.5   # [meters] Maximum distance to merge two clusters
+      fov_dist: 20.     # [meters] Maximum distance of field of view from the sensor to forget points
+      publish_occupancy_grid: false # Whether or not to publish the occupancy grid as debug info.
+                                    # This can add significant computation time
+      min_marker_size: 0.3 # [meters] Minimal diagonal size of a marker to consider it is an obstacle

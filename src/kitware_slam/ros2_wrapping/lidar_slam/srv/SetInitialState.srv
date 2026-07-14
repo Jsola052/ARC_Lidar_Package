@@ -1,0 +1,8 @@
+geometry_msgs/PoseWithCovarianceStamped initial_pose
+string map_prefix_path
+bool keep_label
+bool override_timestamp
+float64 time_offset
+
+---
+bool success

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>sqSlamToolbar</class>
+ <widget class="QToolBar" name="sqSlamToolbar">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>464</width>
+    <height>66</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Slam Controls</string>
+  </property>
+  <property name="orientation">
+   <enum>Qt::Horizontal</enum>
+  </property>
+  <action name="actionAddSlamFilter">
+   <property name="icon">
+    <iconset resource="../sqResources.qrc">
+     <normaloff>:/sqResources/Icons/sqAdd.svg</normaloff>:/sqResources/Icons/sqAdd.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Add a SLAM filter</string>
+   </property>
+  </action>
+  <action name="actionSlamPresetSettings">
+   <property name="icon">
+    <iconset resource="../sqResources.qrc">
+     <normaloff>:/sqResources/Icons/sqPresets.svg</normaloff>:/sqResources/Icons/sqPresets.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Open SLAM presets settings</string>
+   </property>
+  </action>
+  <action name="actionInitialize">
+   <property name="icon">
+    <iconset resource="../sqResources.qrc">
+     <normaloff>:/sqResources/Icons/sqInitialize.svg</normaloff>:/sqResources/Icons/sqInitialize.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Open initialization properties dialog</string>
+   </property>
+  </action>
+  <action name="actionAddExternalSensor">
+   <property name="icon">
+    <iconset resource="../sqResources.qrc">
+     <normaloff>:/sqResources/Icons/sqAddExternalSensor.svg</normaloff>:/sqResources/Icons/sqAddExternalSensor.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Open add external sensor dialog</string>
+   </property>
+  </action>
+  <action name="actionOptimizeGraph">
+   <property name="icon">
+    <iconset resource="../sqResources.qrc">
+     <normaloff>:/sqResources/Icons/sqLoopClosure.svg</normaloff>:/sqResources/Icons/sqLoopClosure.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Open SLAM optimize graph dialog</string>
+   </property>
+  </action>
+  <action name="actionResetSlam">
+   <property name="icon">
+    <iconset resource="../sqResources.qrc">
+     <normaloff>:/sqResources/Icons/sqReset.svg</normaloff>:/sqResources/Icons/sqReset.svg</iconset>
+   </property>
+   <property name="text">
+    <string>Reset SLAM internal state : maps and trajectory are cleared, current pose
+is set back to origin and clear and refill external sensor data.</string>
+   </property>
+  </action>
+  <addaction name="actionAddSlamFilter"/>
+  <addaction name="separator"/>
+  <addaction name="actionSlamPresetSettings"/>
+  <addaction name="actionInitialize"/>
+  <addaction name="actionAddExternalSensor"/>
+  <addaction name="actionOptimizeGraph"/>
+  <addaction name="separator"/>
+  <addaction name="actionResetSlam"/>
+ </widget>
+ <resources>
+  <include location="../sqResources.qrc"/>
+ </resources>
+ <connections/>
+</ui>

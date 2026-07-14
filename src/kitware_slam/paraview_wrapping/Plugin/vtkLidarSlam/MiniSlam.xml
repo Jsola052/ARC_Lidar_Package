@@ -1,0 +1,875 @@
+<ServerManagerConfiguration>
+
+  <!-- Begin Mini Slam -->
+  <ProxyGroup name="filters">
+    <SourceProxy name="MiniSLAM"
+                 class="vtkMiniSlam"
+                 label="Mini SLAM"
+                 base_proxygroup="filters"
+                 base_proxyname="SlamOnline">
+
+      <Documentation
+        short_help="Applies SLAM on input LiDAR frames and displays the most recently transformed frames."
+        long_help="Applies SLAM on input LiDAR frames and displays the most recently transformed frames.">
+        The Mini SLAM filter is a real-time application of SLAM algorithms to sequential LiDAR frames.
+        The output of the filter is the most recently transformed frames. The filter heritages from vtkSlam filter.
+        It is ideal for applications requiring visualization of the latest SLAM-processed frames
+        for quick inspection.
+      </Documentation>
+
+      <!-- ================ Mini Slam Parameters ================ -->
+
+      <IntVectorProperty name="Number of SLAM frames"
+                         command="SetNumberOfSlamFrames"
+                         number_of_elements="1"
+                         default_values="5">
+        <Documentation>
+         The number of slam frames displayed at the same time.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Display at origin"
+                         command="SetDisplayAtOrigin"
+                         default_values="1"
+                         number_of_elements="1">
+        <BooleanDomain name="bool" />
+        <Documentation>
+         If enabled use the optional trajectory input to place trailing frame in LiDAR referential
+         by compensating trajectory.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Reference frame"
+                         command="SetRefFrame"
+                         number_of_elements="1"
+                         default_values="0">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Newest Frame" />
+          <Entry value="1" text="Oldest Frame" />
+        </EnumerationDomain>
+        <Documentation>
+          Define the referential trailing frame used to compensate origin, can be either first or last.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Display at origin" value="1" />
+        </Hints>
+      </IntVectorProperty>
+
+      <PropertyGroup label="Mini SLAM manager parameters">
+        <Property name="Number of SLAM frames" />
+        <Property name="Display at origin" />
+        <Property name="Reference frame" />
+      </PropertyGroup>
+
+      <!-- ============= Override slam filter's parameters ============ -->
+
+      <!--~~~~~~~~~~~~~~~~~~~~~~~~~ Inputs options ~~~~~~~~~~~~~~~~~~~~~~~~~~-->
+      <Property name="Reset state"
+                override="1"
+                command="ResetMiniSlam">
+        <Documentation>
+          Reset mini SLAM internal state: maps and trajectory are cleared,
+          current pose is set back to origin.
+          This keeps parameters unchanged.
+        </Documentation>
+      </Property>
+
+      <StringVectorProperty name="Reload trajectory"
+                            override="1"
+                            panel_visibility="never">
+      </StringVectorProperty>
+
+      <!--~~~~~~~~~~~~~~~~~~~~~~~~~ Inputs options ~~~~~~~~~~~~~~~~~~~~~~~~~~-->
+      <StringVectorProperty name="External sensors data file"
+                            override="1"
+                            panel_visibility="never">
+      </StringVectorProperty>
+
+      <IntVectorProperty name="Auto detect input arrays"
+                         override="1"
+                         command="SetAutoDetectInputArrays"
+                         number_of_elements="1"
+                         default_values="1">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, SLAM filter will try to auto-detect the time, intensity
+          and laser ring id arrays to use depending on LiDAR model.
+        </Documentation>
+      </IntVectorProperty>
+
+      <!-- If auto-detection mode is disabled, user needs to specify input arrays to use -->
+      <StringVectorProperty name="Time array"
+                            override="1"
+                            command="SetInputArrayToProcess"
+                            number_of_elements="5"
+                            element_types="0 0 0 0 2"
+                            default_values_delimiter=";"
+                            default_values="0;0;0;0;timestamp">
+        <ArrayListDomain attribute_type="Scalars" name="array_list">
+          <RequiredProperties>
+            <Property function="Input" name="Input" />
+          </RequiredProperties>
+        </ArrayListDomain>
+        <Documentation>
+          The points measurements timestamps.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto detect input arrays" value="0" />
+        </Hints>
+      </StringVectorProperty>
+
+      <StringVectorProperty name="Intensity array"
+                            override="1"
+                            command="SetInputArrayToProcess"
+                            number_of_elements="5"
+                            element_types="0 0 0 0 2"
+                            default_values_delimiter=";"
+                            default_values="1;0;0;0;intensity">
+        <ArrayListDomain attribute_type="Scalars" name="array_list">
+          <RequiredProperties>
+            <Property function="Input" name="Input" />
+          </RequiredProperties>
+        </ArrayListDomain>
+        <Documentation>
+          The points intensity/reflectivity measurements.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto detect input arrays" value="0" />
+        </Hints>
+      </StringVectorProperty>
+
+      <StringVectorProperty name="Laser ring id array"
+                            override="1"
+                            command="SetInputArrayToProcess"
+                            number_of_elements="5"
+                            element_types="0 0 0 0 2"
+                            default_values_delimiter=";"
+                            default_values="2;0;0;0;laser_id">
+        <ArrayListDomain attribute_type="Scalars" name="array_list">
+          <RequiredProperties>
+            <Property function="Input" name="Input" />
+          </RequiredProperties>
+        </ArrayListDomain>
+        <Documentation>
+          The laser ring ids that acquired points.
+        </Documentation>
+        <Hints>
+          <PropertyWidgetDecorator type="GenericDecorator" mode="visibility" property="Auto detect input arrays" value="0" />
+        </Hints>
+      </StringVectorProperty>
+
+      <!--~~~~~~~~~~~~~~~~~~~~~~~~~ Outputs options ~~~~~~~~~~~~~~~~~~~~~~~~~-->
+
+      <IntVectorProperty name="Advanced return mode"
+                         override="1"
+                         command="SetAdvancedReturnMode"
+                         default_values="0"
+                         panel_visibility="never">
+        <BooleanDomain name="bool" />
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Failure detection"
+                         override="1"
+                         command="SetFailureDetectionEnabled"
+                         default_values="0"
+                         panel_visibility="never">
+        <BooleanDomain name="bool" />
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Keypoint maps output mode"
+                         override="1"
+                         command="SetOutputKeypointsMaps"
+                         default_values="0"
+                         panel_visibility="never">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Disabled"/>
+          <Entry value="1" text="Full maps"/>
+          <Entry value="2" text="Sub-maps"/>
+        </EnumerationDomain>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Keypoints maps update step"
+                         override="1"
+                         command="SetMapsUpdateStep"
+                         default_values="10"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Trajectory frequency"
+                         override="1"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Output current keypoints"
+                         override="1"
+                         command="SetOutputCurrentKeypoints"
+                         default_values="0"
+                         panel_visibility="never">
+        <BooleanDomain name="bool" />
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Output keypoints in WORLD coordinates"
+                         override="1"
+                         command="SetOutputKeypointsInWorldCoordinates"
+                         default_values="1"
+                         panel_visibility="never">
+        <BooleanDomain name="bool" />
+      </IntVectorProperty>
+
+      <!-- ============================ General ============================ -->
+
+      <IntVectorProperty name="2d mode"
+                         override="1"
+                         command="SetTwoDMode"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="never">
+        <BooleanDomain name="bool" />
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use edges"
+                         override="1"
+                         command="EnableEdges"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, edge keypoints are used in optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use intensity edges"
+                         override="1"
+                         command="EnableIntensityEdges"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, intensity edge keypoints are used in optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use planes"
+                         override="1"
+                         command="EnablePlanes"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, plane keypoints are used in optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Use blobs"
+                         override="1"
+                         command="EnableBlobs"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <BooleanDomain name="bool" />
+        <Documentation>
+          If enabled, blob keypoints are used in optimization.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Verbosity level"
+                         override="1"
+                         command="SetVerbosity"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="0) Errors, warnings or one time info"/>
+          <Entry value="1" text="1) 0 + Frame total processing duration"/>
+          <Entry value="2" text="2) 1 + Main steps summary"/>
+          <Entry value="3" text="3) 2 + Sub-problems processing duration"/>
+          <Entry value="4" text="4) 3 + Ceres optimization summary"/>
+          <Entry value="5" text="5) 4 + Logging/maps memory usage"/>
+        </EnumerationDomain>
+        <Documentation>
+          Indicate verbosity level to display more or less information in console:
+
+           (0) print errors, warnings or one time info;
+
+           (1) 0 + frame number and total processing duration;
+
+           (2) 1 + extracted features, used keypoints, localization variance, ego-motion and localization summary;
+
+           (3) 2 + sub-problems processing duration;
+
+           (4) 3 + ceres optimization summary;
+
+           (5) 4 + logging/maps memory usage.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Ego-Motion mode"
+                         override="1"
+                         command="SetEgoMotion"
+                         number_of_elements="1"
+                         default_values="1"
+                         panel_visibility="advanced">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Disabled"/>
+          <Entry value="1" text="Motion extrapolation"/>
+          <Entry value="2" text="Registration on previous frame"/>
+          <Entry value="3" text="Motion extrapolation + Registration"/>
+          <Entry value="4" text="External"/>
+          <Entry value="5" text="External OR motion extrapolation"/>
+        </EnumerationDomain>
+        <Documentation>
+          How to estimate Ego-Motion (approximate relative motion since last frame).
+          The ego-motion step aims to give a fast and approximate initialization of new
+          frame world pose to ensure faster and more precise convergence in Localization step.
+
+          If DISABLED, no ego-motion step is performed : relative motion is Identity, new estimated
+          Tworld is equal to previous Tworld. Fast, but may lead to unstable and imprecise
+          Localization step if motion is important.
+
+          If MOTION EXTRAPOLATION, previous motion is linearly extrapolated to estimate new Tworld pose
+          from the 2 previous poses. Fast and precise if motion is roughly constant and continuous.
+
+          If REGISTRATION ON PREVIOUS FRAME, Trelative (and therefore Tworld) is estimated by globally
+          registering new frame on previous frame. Slower and need textured enough environment, but do not
+          rely on constant motion hypothesis.
+
+          If MOTION EXTRAPOLATION + REGISTRATION ON PREVIOUS FRAME, previous motion is linearly extrapolated
+          to estimate new Tworld pose from the 2 previous poses. Then this estimation is refined by globally
+          registering new frame on previous frame. Slower and need textured enough environment, but should
+          be more precise and rely less on constant motion hypothesis.
+
+          If EXTERNAL, the pose is initialized using external sensor information. Sensor data file must have been loaded.
+          If no external sensor info correspond to Lidar times, no prior egomotion is set.
+
+          If EXTERNAL_OR_MOTION_EXTRAPOLATION, the pose is initialized using external sensor information. Sensor data file must have been loaded.
+          If no external sensor info correspond to Lidar times, a motion extrapolation is performed to get an initial pose.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Undistortion mode"
+                         override="1"
+                         command="SetUndistortion"
+                         number_of_elements="1"
+                         default_values="2"
+                         panel_visibility="advanced">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Disabled"/>
+          <Entry value="1" text="Once"/>
+          <Entry value="2" text="Refined"/>
+          <Entry value="3" text="External"/>
+        </EnumerationDomain>
+        <Documentation>
+          Undistortion mode, to correct rolling shutter distortion during frame acquisition.
+          The undistortion should greatly improve the accuracy for smooth motions,
+          but might be unstable for high-frequency motions.
+
+          DISABLED: no undistortion is performed.
+
+          ONCE: undistortion is performed only once using estimated ego-motion.
+
+          REFINED: undistortion is iteratively refined using optimized ego-motion.
+
+          EXTERNAL: undistortion is performed once using external poses information.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Number of threads"
+                         override="1"
+                         command="SetNbThreads"
+                         number_of_elements="1"
+                         default_values="4"
+                         panel_visibility="advanced">
+        <IntRangeDomain name="range" min="1" max="16"/>
+        <Documentation>
+          Max number of threads to use for parallel processing.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Logging timeout"
+                            override="1"
+                            command="SetLoggingTimeout"
+                            number_of_elements="1"
+                            default_values="10."
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum duration in seconds on which to keep states in memory.
+          It can be reduced to 0 if there are memory constraints.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Use pose graph"
+                         override="1"
+                         command="SetUsePoseGraph"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="never">
+        <BooleanDomain name="bool" />
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Interpolation model"
+                         override="1"
+                         command="SetInterpolation"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <!-- ============================ Initialization ============================ -->
+      <!-- No change from slam filter-->
+
+      <!-- ==================== Transform tree ==================== -->
+
+      <StringVectorProperty name="Set BASE to Lidar transform"
+                            override="1"
+                            panel_visibility="never">
+      </StringVectorProperty>
+
+      <StringVectorProperty name="Set initial pose"
+                            override="1"
+                            panel_visibility="never">
+      </StringVectorProperty>
+
+      <StringVectorProperty name="Set current pose"
+                            override="1"
+                            panel_visibility="never">
+      </StringVectorProperty>
+
+      <!-- ================ Keypoints extraction Parameters ================ -->
+      <!-- No change from slam filter-->
+
+      <!-- ===================== Ego Motion Parameters ===================== -->
+      <!-- No change from slam filter-->
+
+      <!-- ==================== Localization Parameters ==================== -->
+      <!-- No change from slam filter-->
+
+      <!-- ======================== Map Parameters ========================= -->
+
+      <Property name="Clear maps and log"
+                override="1"
+                panel_visibility="never">
+      </Property>
+
+      <IntVectorProperty name="Mapping mode"
+                         override="1"
+                         command="SetMapUpdate"
+                         number_of_elements="1"
+                         default_values="2"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Submap extraction mode"
+                         override="1"
+                         command="SetSubmapMode"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Decaying threshold"
+                            override="1"
+                            command="SetVoxelGridDecayingThreshold"
+                            number_of_elements="1"
+                            default_values="-1."
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Keyframe distance threshold"
+                            override="1"
+                            command="SetKfDistanceThreshold"
+                            number_of_elements="1"
+                            default_values="0.5"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Keyframe angle threshold"
+                            override="1"
+                            command="SetKfAngleThreshold"
+                            number_of_elements="1"
+                            default_values="5."
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Edges map sampling mode"
+                         override="1"
+                         command="SetVoxelGridSamplingModeEdges"
+                         number_of_elements="1"
+                         default_values="2"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Intensity edges map sampling mode"
+                         override="1"
+                         command="SetVoxelGridSamplingModeIntensityEdges"
+                         number_of_elements="1"
+                         default_values="2"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Planes map sampling mode"
+                         override="1"
+                         command="SetVoxelGridSamplingModePlanes"
+                         number_of_elements="1"
+                         default_values="2"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Blobs map sampling mode"
+                         override="1"
+                         command="SetVoxelGridSamplingModeBlobs"
+                         number_of_elements="1"
+                         default_values="2"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Edges map resolution"
+                            override="1"
+                            command="SetVoxelGridLeafSizeEdges"
+                            number_of_elements="1"
+                            default_values="0.3"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Intensity edges map resolution"
+                            override="1"
+                            command="SetVoxelGridLeafSizeIntensityEdges"
+                            number_of_elements="1"
+                            default_values="0.2"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Planes map resolution"
+                            override="1"
+                            command="SetVoxelGridLeafSizePlanes"
+                            number_of_elements="1"
+                            default_values="0.6"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Blobs map resolution"
+                            override="1"
+                            command="SetVoxelGridLeafSizeBlobs"
+                            number_of_elements="1"
+                            default_values="0.5"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Rolling grid dimension"
+                         override="1"
+                         command="SetVoxelGridSize"
+                         number_of_elements="1"
+                         default_values="50"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Rolling grid resolution"
+                            override="1"
+                            command="SetVoxelGridResolution"
+                            number_of_elements="1"
+                            default_values="10."
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Min number of frames per voxel"
+                         override="1"
+                         command="SetVoxelGridMinFramesPerVoxel"
+                         number_of_elements="1"
+                         default_values="2"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+     <!-- ==================== External sensors' parameters ==================== -->
+
+     <IntVectorProperty name="Planar trajectory"
+                        override="1"
+                        panel_visibility="never">
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Lever arm"
+                            override="1"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <Property name="Calibrate"
+                override="1"
+                panel_visibility="never">
+      </Property>
+
+      <DoubleVectorProperty name="Wheel odom weight"
+                            override="1"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Wheel odometry relative mode"
+                         override="1"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="IMU gravity weight"
+                            override="1"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="IMU weight"
+                            override="1"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Gravity"
+                            override="1"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Pose weight"
+                            override="1"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Imu reset threshold"
+                         override="1"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Imu update"
+                         override="1"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Time threshold"
+                            override="1"
+                            panel_visibility="never">
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Time synchronization"
+                         override="1"
+                         panel_visibility="never">
+      </IntVectorProperty>
+
+      <!-- ================ Confidence estimator parameters ================ -->
+      <!-- No change from slam filter. Confidence estimator parameters is not displayed
+           since Failure detection is disabled, -->
+
+      <!-- ============================ Pose Graph Optimization ============================ -->
+      <!-- No change from slam filter. Pose Graph Optimization parameters is not displayed
+           since Use pose graph is disabled, -->
+
+      <!-- ============================ Loop Closure ============================ -->
+      <!-- No change from slam filter. Loop clousre parameters is not displayed
+           since Use loop closure constraint is disabled, -->
+    </SourceProxy>
+  </ProxyGroup>
+  <!-- End Mini Slam -->
+
+  <!-- Begin KeyPointsExtractor -->
+  <ProxyGroup name="KeyPointsExtractors">
+    <Proxy name="SpinningSensorKeypointExtractor"
+           class="vtkSpinningSensorKeypointExtractor"
+           label="Spinning Sensor Keypoint Extractor">
+
+      <Documentation
+        short_help="Extract keypoints from a spinning LiDAR sensor pointcloud."
+        long_help="Extract edges (geometric + intensity based), planes and blobs keypoints from a spinning LiDAR sensor pointcloud.">
+        Extract edges, planes and blobs keypoints from a spinning LiDAR sensor pointcloud.
+      </Documentation>
+
+      <IntVectorProperty name="Mode"
+                         command="SetMode"
+                         number_of_elements="1"
+                         default_values="0"
+                         panel_visibility="advanced">
+        <EnumerationDomain name="enum">
+          <Entry value="0" text="Sparse"/>
+          <Entry value="1" text="Dense"/>
+        </EnumerationDomain>
+        <Documentation>
+          How to extract the keypoints.
+
+          If DENSE, a vertex map is built to analyse the frame.
+
+          If SPARSE, the lines are analysed independently.
+        </Documentation>
+      </IntVectorProperty>
+
+      <IntVectorProperty name="Min neighbors nb"
+                         command="SetMinNeighNb"
+                         number_of_elements="1"
+                         default_values="4"
+                         panel_visibility="advanced">
+        <Documentation>
+          Minimum number of neighbors to use on each side of current point to estimate
+          the points curvature score.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Min neighborhood radius"
+                            command="SetMinNeighRadius"
+                            number_of_elements="1"
+                            default_values="0.10"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum distance of the farthest neighbor to use on each side of current point to estimate
+          the points curvature score.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Min distance to sensor"
+                            command="SetMinDistanceToSensor"
+                            number_of_elements="1"
+                            default_values="1.5"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum distance in meters between a point and the sensor to be processed for
+          the keypoint extraction. In other words, all points too close from the
+          sensor are automatically rejected.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Max distance to sensor"
+                            command="SetMaxDistanceToSensor"
+                            number_of_elements="1"
+                            default_values="200"
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum distance in meters between a point and the sensor to be processed for
+          the keypoint extraction. In other words, all points too far from the
+          sensor are automatically rejected.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Min azimuth angle"
+                            command="SetAzimuthMin"
+                            number_of_elements="1"
+                            default_values="0"
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum azimuth angle in degrees to extract a keypoint. This allows to not etract false edges due to permanent occlusions
+          (due to vehicle/robot/pedestrian) or to handle reduced field of view cases. Space from min to max azimuth compels with the right thumb rule.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Max azimuth angle"
+                            command="SetAzimuthMax"
+                            number_of_elements="1"
+                            default_values="360"
+                            panel_visibility="advanced">
+        <Documentation>
+          Maximum azimuth angle in degrees to extract a keypoint. This allows to not etract false edges due to permanent occlusions
+          (due to vehicle/robot/pedestrian) or to handle reduced field of view cases. Space from min to max azimuth compels with the right thumb rule.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Min laser beam to surface angle"
+                            command="SetMinBeamSurfaceAngle"
+                            number_of_elements="1"
+                            default_values="10."
+                            panel_visibility="advanced">
+        <Documentation>
+          Minimum angle in degrees between the laser beam and the surface on which
+          a point is laying to consider it as a potential keypoint.
+          In other words, all points laying on too oblique surfaces
+          relatively to the sensor are automatically rejected.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Plane threshold angle"
+                            command="SetPlaneAngleThreshold"
+                            number_of_elements="1"
+                            default_values="150."
+                            panel_visibility="advanced">
+        <Documentation>
+          Threshold upon angle in degrees between left and right lines to consider a point as plane.
+          It is used with its absolute sine value in SSKE for planes,
+          with its cosine value in DSSKE for planes and
+          with its opposite cosine value in DSSKE to filter too sharp edges.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Edge threshold angle"
+                            command="SetEdgeAngleThreshold"
+                            number_of_elements="1"
+                            default_values="120."
+                            panel_visibility="advanced">
+        <Documentation>
+          Threshold upon angle in degrees between left and right lines to consider a point as edge.
+          Used with its absolute sine value in SSKE for edges and
+          with its cosine value in DSSKE for edges.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Edge min depth gap"
+                            command="SetEdgeDepthGapThreshold"
+                            number_of_elements="1"
+                            default_values="1."
+                            panel_visibility="advanced">
+        <Documentation>
+          One strategy to consider a point as an edge keypoint is to compute
+          the gap between the point and its azimuthal neighbors. If the
+          gap is big enough on at least one side, we consider the point as an
+          edge keypoint.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Edge min nb of missing points"
+                            command="SetEdgeNbGapPoints"
+                            number_of_elements="1"
+                            default_values="10"
+                            panel_visibility="advanced">
+        <Documentation>
+          One strategy to consider a point as an edge keypoint is to compute
+          the number of points that were missed because of no return (e.g. some window)
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Edge min intensity gap"
+                            command="SetEdgeIntensityGapThreshold"
+                            number_of_elements="1"
+                            default_values="50."
+                            panel_visibility="advanced">
+        <Documentation>
+          One strategy to consider a point as an intensity edge keypoint is to compute
+          the intensity gap between the point and its left and right neighbors.
+          If the gap is big enough, we consider the point as an intensity edge keypoint.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <IntVectorProperty name="Maximum keypoints number"
+                         command="SetMaxPoints"
+                         number_of_elements="1"
+                         default_values="1000"
+                         panel_visibility="advanced">
+        <Documentation>
+          Maximum number of keypoints of each type to extract. A voxel grid is used to downsample the keypoints cloud.
+          Points in voxels are sorted following their certainty value. The most certain points are extracted in each voxel
+          until reaching this threshold number.
+        </Documentation>
+      </IntVectorProperty>
+
+      <DoubleVectorProperty name="Voxel grid resolution"
+                            command="SetVoxelResolution"
+                            number_of_elements="1"
+                            default_values="1."
+                            panel_visibility="advanced">
+        <Documentation>
+          Resolution of the voxel grid used to downsample the keypoints cloud in meters.
+          Points in voxels are sorted following their certainty value.
+          The most certain points are extracted in each voxel until reaching the "maximum keypoints" number threshold.
+        </Documentation>
+      </DoubleVectorProperty>
+
+      <DoubleVectorProperty name="Ratio of points"
+                            command="SetInputSamplingRatio"
+                            number_of_elements="1"
+                            default_values="1."
+                            panel_visibility="advanced">
+        <Documentation>
+          Ratio to randomly downsample the input frame to extract keypoints [0, 1]. This can be used to solve computation time issues.
+        </Documentation>
+      </DoubleVectorProperty>
+    </Proxy>
+  </ProxyGroup>
+  <!-- End KeyPointsExtractors -->
+
+</ServerManagerConfiguration>
