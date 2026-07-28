@@ -38,6 +38,7 @@ def generate_launch_description():
             'viz': 'true',
             'rviz_config': rviz_config_path,
             'timestamp_mode': 'TIME_FROM_ROS_TIME',
+            'lidar_mode': '512x10',
             'udp_dest': '10.42.0.1'
         }.items()
     )
@@ -89,26 +90,29 @@ def generate_launch_description():
             '--child-frame-id', 'camera_back_optical_frame'
         ]
     )
-
-    # 1. Front Camera image transport decompressor (Custom Python)
-    decompress_script = os.path.join(ouster_share, 'launch', 'decompress_node.py')
-    front_decompressor = ExecuteProcess(
-        cmd=['python3', decompress_script, 
-             '--ros-args', 
-             '-r', 'in/compressed:=/camera/front/front_camera/image_raw/compressed',
-             '-r', 'out:=/camera/front/front_camera/image_decompressed'],
+    # 1.5 Image Transport Decompression (Network Bandwidth Optimization)
+    # Subscribes to the compressed streams from the Pi over the network,
+    # decompresses them locally on the laptop, and publishes to VINS.
+    front_decompress_node = ExecuteProcess(
+        cmd=[
+            'ros2', 'run', 'image_transport', 'republish', 'compressed', 'raw',
+            '--ros-args',
+            '--remap', 'in/compressed:=/camera/front/front_camera/image_raw/compressed',
+            '--remap', 'out:=/camera/front/front_camera/image_decompressed'
+        ],
         output='screen'
     )
 
-    # 1.5 Back Camera image transport decompressor (Custom Python)
-    back_decompressor = ExecuteProcess(
-        cmd=['python3', decompress_script, 
-             '--ros-args', 
-             '-r', '__node:=back_decompress_node',
-             '-r', 'in/compressed:=/camera/back/back_camera/image_raw/compressed',
-             '-r', 'out:=/camera/back/back_camera/image_decompressed'],
+    back_decompress_node = ExecuteProcess(
+        cmd=[
+            'ros2', 'run', 'image_transport', 'republish', 'compressed', 'raw',
+            '--ros-args',
+            '--remap', 'in/compressed:=/camera/back/back_camera/image_raw/compressed',
+            '--remap', 'out:=/camera/back/back_camera/image_decompressed'
+        ],
         output='screen'
     )
+
 
     # 2. VINS-Fusion Node (Front)
     vins_config_front = '/home/robotics/sensor_ws/src/vins_fusion_ros2/config/ouster_dual_cam/front_mono_imu_config.yaml'
@@ -195,6 +199,60 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('outdoor'))
     )
     
+    # 6. Nav2 Planner (Proof of Concept - No Motors)
+    nav2_planner = Node(
+        package='nav2_planner',
+        executable='planner_server',
+        name='planner_server',
+        output='screen',
+        parameters=[os.path.join(ouster_share, 'config', 'nav2_planner_params.yaml')]
+    )
+    nav2_lifecycle = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_navigation',
+        output='screen',
+        parameters=[{'use_sim_time': False},
+                    {'autostart': True},
+                    {'node_names': ['planner_server']}]
+    )
+
+    # 7. Waypoint Manager (Custom Python Node)
+    waypoint_script = os.path.join(ouster_share, 'launch', 'waypoint_manager.py')
+    waypoint_manager_node = ExecuteProcess(
+        cmd=['python3', waypoint_script],
+        output='screen'
+    )
+
+    # 8. Map Auto-Save Node (Persistent SLAM)
+    # Saves the SLAM keypoint maps to /home/robotics/maps/ every 2 minutes.
+    # On next boot, the SLAM node auto-loads these maps via initial_maps param.
+    map_autosave_script = os.path.join(ouster_share, 'launch', 'map_autosave.py')
+    map_autosave_node = ExecuteProcess(
+        cmd=['python3', map_autosave_script],
+        output='screen'
+    )
+
+    # 9. Map Manager GUI (Floating Toolbar)
+    # Small always-on-top window with two buttons:
+    #   "New Map"  — wipes saved maps & resets SLAM for a new deployment site
+    #   "Save Now" — manual save trigger
+    map_manager_script = os.path.join(ouster_share, 'launch', 'map_manager.py')
+    map_manager_node = ExecuteProcess(
+        cmd=['python3', map_manager_script],
+        output='screen'
+    )
+
+    # 10. Saved Map Loader (Always-Visible Map in RViz)
+    # Reads saved PCD files from /home/robotics/maps/ and publishes
+    # them as latched PointCloud2 topics so the map overlay is visible
+    # immediately on startup, even before SLAM starts processing.
+    saved_map_loader_script = os.path.join(ouster_share, 'launch', 'saved_map_loader.py')
+    saved_map_loader_node = ExecuteProcess(
+        cmd=['python3', saved_map_loader_script],
+        output='screen'
+    )
+    
     nodes = [
         outdoor_arg,
         lidar_driver,
@@ -202,8 +260,9 @@ def generate_launch_description():
         tf_os_sensor_to_base,
         tf_front_optical,
         tf_back_optical,
-        front_decompressor,
-        back_decompressor,
+
+        front_decompress_node,
+        back_decompress_node,
         vins_front_node,
         vins_back_node,
 
@@ -212,7 +271,13 @@ def generate_launch_description():
         path_publisher_node,
         ouster_conversion_node,
         slam_indoor_node,
-        slam_outdoor_node
+        slam_outdoor_node,
+        nav2_planner,
+        nav2_lifecycle,
+        waypoint_manager_node,
+        map_autosave_node,
+        map_manager_node,
+        saved_map_loader_node
     ]
     
     return LaunchDescription(nodes)

@@ -39,9 +39,9 @@
         frequency: -1.         # Frequency of output SLAM pose (Hz). For each new scan, all previous poses since last scan
                                # are published following this frequency. If negative, publish at SLAM frequency.
       maps:
-        edges: false            # Publish edges keypoints map as a LidarPoint PointCloud2 msg to topic 'maps/edges'.
+        edges: true             # Publish edges keypoints map as a LidarPoint PointCloud2 msg to topic 'maps/edges'.
         intensity_edges: false  # Publish intensity edges keypoints map as a LidarPoint PointCloud2 msg to topic 'maps/intensity_edges'.
-        planes: false           # Publish planes keypoints map as a LidarPoint PointCloud2 msg to topic 'maps/planes'.
+        planes: true            # Publish planes keypoints map as a LidarPoint PointCloud2 msg to topic 'maps/planes'.
         blobs: false            # Publish blobs keypoints map as a LidarPoint PointCloud2 msg to topic 'maps/blobs'.
       submaps:
         edges: false            # Publish edges keypoints submap as a LidarPoint PointCloud2 msg to topic 'submaps/edges'.
@@ -61,9 +61,12 @@
 
       # Path prefix of SLAM maps that will be loaded at startup (if empty, no map will be loaded).
       # This is equivalent to publishing SlamCommand::LOAD_KEYPOINTS_MAPS to 'slam_command' topic at startup.
-      initial_maps: ""
+      # PERSISTENT MAPPING: Auto-load the saved map on every startup.
+      # On first boot (no map files exist yet), this harmlessly warns and starts fresh.
+      # After the first session, the auto-save node writes maps here every 2 minutes.
+      initial_maps: "/home/robotics/maps/slam_map"
       keep_label: false         # [bool] If true, keep the label of points when loading keypoint maps
-      override_timestamp: false # [bool] If true, override the timestamp of all keypoints when load maps
+      override_timestamp: true  # [bool] Override timestamps so loaded keypoints align with current session time
       timestamp_offset: 0.      # [double] Timeoffset from current time to apply on the loaded maps
 
       # Initial SLAM pose in odometry_frame X, Y, Z, roll, pitch, yaw [m, rad] (default: 0, 0, 0, 0, 0, 0)
@@ -367,7 +370,10 @@
         #          *SlamCommand::ENABLE_SLAM_MAP_EXPANSION
         #          *SlamCommand::ENABLE_SLAM_MAP_UPDATE
         # to 'slam_command' topic at startup.
-        update_maps: 2
+        # PERSISTENT MAPPING: Mode 1 (expansion) keeps loaded map frozen
+        # and only adds new keypoints in previously unexplored areas.
+        # This prevents the robot from corrupting a good map on reload.
+        update_maps: 1
         # How to extract a submap to reduce the search:
         #  0) Extract the bounding box of the current frame.
         #     This makes submap extraction fast but more points might be implied in the search.

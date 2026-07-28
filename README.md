@@ -88,6 +88,8 @@ sudo systemctl restart ros2_cameras.service
 
 # To view live camera logs:
 journalctl -u ros2_cameras.service -f
+
+ssh robotics@10.42.0.149
 ```
 
 ---
