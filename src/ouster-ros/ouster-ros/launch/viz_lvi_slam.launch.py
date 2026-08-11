@@ -103,6 +103,7 @@ def generate_launch_description():
         output='screen'
     )
 
+    # back_decompress_node removed for single-camera operation
     back_decompress_node = ExecuteProcess(
         cmd=[
             'ros2', 'run', 'image_transport', 'republish', 'compressed', 'raw',
@@ -112,7 +113,6 @@ def generate_launch_description():
         ],
         output='screen'
     )
-
 
     # 2. VINS-Fusion Node (Front)
     vins_config_front = '/home/robotics/sensor_ws/src/vins_fusion_ros2/config/ouster_dual_cam/front_mono_imu_config.yaml'
@@ -243,6 +243,17 @@ def generate_launch_description():
         output='screen'
     )
 
+    # 10.5 Camera Rotate Node (180° rotated feeds for optional RViz inspection)
+    # Publishes /camera/front/front_camera/image_rotated
+    #       and /camera/back/back_camera/image_rotated
+    # Nothing subscribes to these — they are for manual RViz use only.
+    camera_rotate_script = os.path.join(ouster_share, 'launch', 'camera_rotate.py')
+    camera_rotate_node = ExecuteProcess(
+        cmd=['python3', camera_rotate_script],
+        additional_env={'CYCLONEDDS_URI': ''},
+        output='screen'
+    )
+
     # 10. Saved Map Loader (Always-Visible Map in RViz)
     # Reads saved PCD files from /home/robotics/maps/ and publishes
     # them as latched PointCloud2 topics so the map overlay is visible
@@ -250,6 +261,15 @@ def generate_launch_description():
     saved_map_loader_script = os.path.join(ouster_share, 'launch', 'saved_map_loader.py')
     saved_map_loader_node = ExecuteProcess(
         cmd=['python3', saved_map_loader_script],
+        output='screen'
+    )
+
+    # 10.6 Dense Map Accumulator (Full 3D Environment Map)
+    # Accumulates LiDAR scans into a voxel-downsampled point cloud in odom frame.
+    # Publishes /dense_map and saves/loads /home/robotics/maps/dense_map.pcd
+    dense_map_script = os.path.join(ouster_share, 'launch', 'dense_map_accumulator.py')
+    dense_map_node = ExecuteProcess(
+        cmd=['python3', dense_map_script],
         output='screen'
     )
     
@@ -277,7 +297,9 @@ def generate_launch_description():
         waypoint_manager_node,
         map_autosave_node,
         map_manager_node,
-        saved_map_loader_node
+        saved_map_loader_node,
+        dense_map_node,
+        camera_rotate_node
     ]
     
     return LaunchDescription(nodes)

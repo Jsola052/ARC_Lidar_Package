@@ -24,7 +24,6 @@ from std_msgs.msg import Header
 MAP_DIR = '/home/robotics/maps/'
 EDGES_FILE = os.path.join(MAP_DIR, 'slam_map_edges.pcd')
 PLANES_FILE = os.path.join(MAP_DIR, 'slam_map_planes.pcd')
-DENSE_MAP_FILE = os.path.join(MAP_DIR, 'dense_map.pcd')
 REPUBLISH_INTERVAL = 5.0  # seconds
 
 
@@ -137,14 +136,10 @@ class SavedMapLoader(Node):
         self.planes_pub = self.create_publisher(
             PointCloud2, '/saved_map/planes', latched_qos
         )
-        self.dense_pub = self.create_publisher(
-            PointCloud2, '/saved_map/dense', latched_qos
-        )
 
         # Load and publish immediately
         self.edges_msg = None
         self.planes_msg = None
-        self.dense_msg = None
         self._load_and_publish()
 
         # Republish periodically so newly saved maps get picked up
@@ -179,19 +174,6 @@ class SavedMapLoader(Node):
             self.planes_msg = planes_msg
         elif self.planes_msg is None:
             self.get_logger().warn(f'No saved planes map at {PLANES_FILE}')
-
-        # Load dense map
-        dense_msg = load_pcd_to_pointcloud2(DENSE_MAP_FILE, frame_id='odom')
-        if dense_msg:
-            dense_msg.header.stamp = now
-            self.dense_pub.publish(dense_msg)
-            if self.dense_msg is None:
-                self.get_logger().info(
-                    f'✓ Loaded saved dense map: {dense_msg.width} points'
-                )
-            self.dense_msg = dense_msg
-        elif self.dense_msg is None:
-            self.get_logger().warn(f'No saved dense map at {DENSE_MAP_FILE}')
 
 
 def main():

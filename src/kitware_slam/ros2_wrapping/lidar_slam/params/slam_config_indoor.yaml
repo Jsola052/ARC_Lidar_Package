@@ -30,7 +30,7 @@
     # SLAM node outputs
     # If set to true, LidarSlamNode will publish the given output to a topic or to the TF server (default to true if not specified).
     output:
-      registered_points: false # Publish registered (and undistorted) SLAM pointcloud as LidarPoint PointCloud2 msg to topic 'slam_registered_points'.
+      registered_points: true  # Publish registered (and undistorted) SLAM pointcloud as LidarPoint PointCloud2 msg to topic 'slam_registered_points'.
       pose:
         odom: true             # Publish SLAM pose as an Odometry msg on 'slam_odom' topic.
         tf: true               # Publish SLAM pose as a TF from 'odometry_frame' to 'tracking_frame'.
@@ -132,8 +132,8 @@
 
       external_poses:
         enable: true            # [bool] To receive and use the external poses in SLAM (local opt or pose graph opt)
-        weight: 1.0               # [float] Weight to apply to the constraint built on external poses
-        saturation_distance: 10. # [meters] Saturation distance to take the external pose into account
+        weight: 2.0               # [float] Weight to apply to the constraint built on external poses
+        saturation_distance: 2.  # [meters] Saturation distance to take the external pose into account
                                  # in SLAM optimization, pose graph optimization or calibration
 
       # Wheel encoder appliable for ground wheels for translation
@@ -165,7 +165,7 @@
         loop_closure: true # [bool] to decide whether or not to add loop closure constraints into pose graph
         landmark: false    # [bool] to decide whether or not to add landmark constraints into pose graph
         gps: false         # [bool] to decide whether or not to add GPS constraints into pose graph
-        ext_pose: false    # [bool] to decide whether or not to add external pose constraints into pose graph
+        ext_pose: true     # [bool] to decide whether or not to add external pose constraints into pose graph
       # Loop closure parameters
       loop_closure:
         # Ranges for submaps.

@@ -64,17 +64,17 @@ class MapManagerGUI:
         btn_frame = tk.Frame(frame, bg=BG)
         btn_frame.pack()
 
-        # New Map button (red — destructive action)
-        self.new_map_btn = tk.Button(
+        # Delete Map button (red — destructive action)
+        self.delete_map_btn = tk.Button(
             btn_frame,
-            text='🗺️  New Map',
-            command=self.new_map,
+            text='🗑️  Delete Map',
+            command=self.delete_map,
             bg='#c0392b', fg='white', activebackground='#e74c3c',
             font=('Helvetica', 10, 'bold'),
             width=14, height=2,
             relief='flat', cursor='hand2'
         )
-        self.new_map_btn.pack(side=tk.LEFT, padx=4)
+        self.delete_map_btn.pack(side=tk.LEFT, padx=4)
 
         # Save Now button (blue — safe action)
         self.save_btn = tk.Button(
@@ -99,13 +99,13 @@ class MapManagerGUI:
     #  Actions
     # ────────────────────────────────────────────────────────
 
-    def new_map(self):
+    def delete_map(self):
         """Delete saved maps and reset the SLAM for a fresh start."""
         if not messagebox.askyesno(
-            'Start New Map',
+            'Delete Map',
             'This will DELETE the current saved map and reset\n'
             'the SLAM to start mapping from scratch.\n\n'
-            'Use this when deploying to a new location.\n\n'
+            'Use this when you want to clear the map completely.\n\n'
             'Continue?',
             icon='warning'
         ):
@@ -120,6 +120,10 @@ class MapManagerGUI:
                 deleted = 0
                 for f in glob.glob(f'{MAP_PATH}_*.pcd'):
                     os.remove(f)
+                    deleted += 1
+                dense_map_file = '/home/robotics/maps/dense_map.pcd'
+                if os.path.exists(dense_map_file):
+                    os.remove(dense_map_file)
                     deleted += 1
 
                 # 2. Switch SLAM to full map update mode (command 10)
@@ -212,11 +216,11 @@ class MapManagerGUI:
         self.status.config(text=text, fg=color)
 
     def _disable_buttons(self):
-        self.new_map_btn.config(state=tk.DISABLED)
+        self.delete_map_btn.config(state=tk.DISABLED)
         self.save_btn.config(state=tk.DISABLED)
 
     def _enable_buttons(self):
-        self.new_map_btn.config(state=tk.NORMAL)
+        self.delete_map_btn.config(state=tk.NORMAL)
         self.save_btn.config(state=tk.NORMAL)
 
     def run(self):
